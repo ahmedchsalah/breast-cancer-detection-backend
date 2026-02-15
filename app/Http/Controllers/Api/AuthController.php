@@ -4,11 +4,11 @@ namespace App\Http\Controllers\Api;
 
 use App\Models\Organization;
 use App\Models\User;
-use App\Models\Otp; // <--- Don't forget this
-use App\Mail\OtpMail; // <--- And this
+use App\Models\Otp;
+use App\Mail\OtpMail;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Hash;
-use Illuminate\Support\Facades\Auth;
+use Illuminate\Support\Facades\Auth; // <--- Critical for Cookie Auth
 use Illuminate\Support\Facades\Mail;
 use Illuminate\Support\Str;
 use Carbon\Carbon;
@@ -16,11 +16,10 @@ use App\Http\Requests\Api\LoginRequest;
 use App\Http\Requests\Api\RegisterRequest;
 use App\Http\Controllers\Controller;
 use App\Http\Resources\UserResource;
-use Illuminate\Http\Request; // Needed for verifyOtp validation
+use Illuminate\Http\Request;
 
 class AuthController extends Controller
 {
-    // ... (Your Register Function stays exactly the same) ...
     public function register(RegisterRequest $request)
     {
         $user = DB::transaction(function () use ($request) {
@@ -57,129 +56,111 @@ class AuthController extends Controller
             return $user;
         });
 
-        $token = $user->createToken('auth_token')->plainTextToken;
+        // 👇 CHANGE 1: Login via Cookie instead of Token
+        Auth::login($user);
 
+        // Return User (No token needed anymore!)
         return response()->json([
             'message' => 'Registration successful.',
             'user' => new UserResource($user->load('organization')),
-            'token' => $token,
         ], 201);
     }
 
     // === 1. LOGIN (Step 1: Validate User & Send OTP) ===
     public function login(LoginRequest $request)
     {
-        // We find the user manually to check status before verifying password
+        // ⚠️ NOTE: We do NOT use Auth::attempt() here because
+        // that would start a session immediately. We want to wait for OTP.
+
         $user = User::where('email', $request->email)->first();
 
-        // Check Credentials
         if (!$user || !Hash::check($request->password, $user->password)) {
             return response()->json(['message' => 'Invalid login credentials'], 401);
         }
 
-        // Security Check: Is the doctor approved?
         if (!$user->is_active) {
             return response()->json([
                 'message' => 'Your account is pending approval by your Clinic Manager.'
             ], 403);
         }
 
-        // Credentials are good. Send OTP.
         $this->sendOtpEmail($user);
 
         return response()->json([
             'message' => 'OTP sent to your email. Please verify to complete login.',
-            'email' => $user->email // Helper for frontend
+            'email' => $user->email
         ]);
     }
 
-    // === 2. VERIFY OTP (Step 2: Check Code & Issue Token) ===
+    // === 2. VERIFY OTP (Step 2: Check Code & Start Session) ===
     public function verifyOtp(Request $request)
     {
         $request->validate([
             'email' => 'required|email',
-            'otp' => 'required', // Removed 'digits:6' to avoid validation errors on format
-            'device_name' => 'nullable|string'
+            'otp' => 'required',
         ]);
 
-        // 1. Find the OTP record
         $otpRecord = Otp::where('identifier', $request->email)->first();
 
-        // 2. Check if record exists
-        if (!$otpRecord) {
-            return response()->json(['message' => 'No OTP found for this email.'], 400);
-        }
-
-        // 3. Check if OTP matches (Cast both to strings to be 100% sure)
-        if ((string) $otpRecord->token !== (string) $request->otp) {
+        if (!$otpRecord || (string) $otpRecord->token !== (string) $request->otp) {
             return response()->json(['message' => 'Invalid OTP provided.'], 400);
         }
 
-        // 4. Check Expiry (Handle Timezone Safely)
-        // We ensure the DB timestamp is treated as a Carbon date before comparing
-        $expiresAt = Carbon::parse($otpRecord->expires_at);
-
-        if (Carbon::now()->gt($expiresAt)) {
-            return response()->json(['message' => 'OTP has expired. Please login again.'], 400);
+        if (Carbon::now()->gt(Carbon::parse($otpRecord->expires_at))) {
+            return response()->json(['message' => 'OTP has expired.'], 400);
         }
 
-        // 5. Success! Delete the OTP so it cannot be used twice
         $otpRecord->delete();
-
-        // 6. Login the User
         $user = User::where('email', $request->email)->firstOrFail();
 
-        // Generate Token
-        $token = $user->createToken($request->device_name ?? 'web')->plainTextToken;
+        // 👇 CHANGE 2: The Magic Line. This creates the HttpOnly Cookie.
+        Auth::login($user);
+        $request->session()->regenerate(); // Prevents Session Fixation attacks
 
         return response()->json([
             'message' => 'Login successful',
             'user' => new UserResource($user->load('organization')),
-            'token' => $token,
+            // No 'token' returned here. The browser has the cookie now.
         ]);
     }
 
-    // === 3. RESEND OTP (Utility) ===
+    // === 3. RESEND OTP ===
     public function resendOtp(Request $request)
     {
         $request->validate(['email' => 'required|email|exists:users,email']);
-
         $user = User::where('email', $request->email)->first();
 
-        // Don't send if user is banned/inactive
         if (!$user->is_active) {
             return response()->json(['message' => 'Account is inactive.'], 403);
         }
 
         $this->sendOtpEmail($user);
-
         return response()->json(['message' => 'OTP resent successfully.']);
     }
 
-    //Helper Function to avoid code duplication
     private function sendOtpEmail($user)
     {
+        // ... (Same as before) ...
         $code = rand(100000, 999999);
-
         Otp::updateOrCreate(
             ['identifier' => $user->email],
-            [
-                'token' => $code,
-                'expires_at' => Carbon::now()->addMinutes(10)
-            ]
+            ['token' => $code, 'expires_at' => Carbon::now()->addMinutes(10)]
         );
 
-        // Send Email (Wrap in try/catch to prevent crashing if internet is down)
         try {
             Mail::to($user->email)->send(new OtpMail($code));
-        } catch (\Exception $e) {
-            // Log error or ignore in dev
-        }
+        } catch (\Exception $e) {}
     }
 
-    public function logout()
+    // === 4. LOGOUT ===
+    public function logout(Request $request)
     {
-        auth()->user()->currentAccessToken()->delete();
+        // 👇 CHANGE 3: Destroy the Session Cookie
+        Auth::guard('web')->logout();
+
+        $request->session()->invalidate();
+        $request->session()->regenerateToken();
+
         return response()->json(['message' => 'Logged out successfully']);
     }
 
