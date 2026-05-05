@@ -13,12 +13,11 @@ return Application::configure(basePath: dirname(__DIR__))
     )
     ->withMiddleware(function (Middleware $middleware): void {
         $middleware->statefulApi();
-
-//        // ADD THIS LINE:
-//        $middleware->validateCsrfTokens(except: [
-//            'register', // <--- Allow curl to hit this without a token
-//            'login',
-//        ]);
+        $middleware->append(App\Http\Middleware\SetLocale::class);
+        // ADD THIS LINE:
+        $middleware->validateCsrfTokens(except: [
+            '/test-whatsapp-otp',
+        ]);
     })
     ->withExceptions(function (Exceptions $exceptions): void {
         //

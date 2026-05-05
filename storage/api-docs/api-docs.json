@@ -1,0 +1,1065 @@
+{
+    "openapi": "3.0.0",
+    "info": {
+        "title": "Federated Learning API",
+        "description": "API documentation for the Medical AI Federated Learning platform.\n\n## Authentication Flow\n\nThis API uses a **2-step OTP verification** for both **registration** and **login**.\n\n---\n\n### Registration Flow — `org_manager` (3 steps)\n\n1. `POST /api/register` — Validate and create the account (inactive). Returns `email` and `phone_number`.\n2. Choose an OTP channel:\n   - **Email** → `POST /api/send-otp` with `method=email`\n   - **WhatsApp** → `POST /api/send-otp` with `method=whatsapp`\n3. `POST /api/verify-otp?context=register` — Verifies identity, activates the account, and logs the user in.\n\n---\n\n### Registration Flow — `doctor` (3 steps + approval gate)\n\n1. `GET /api/organizations` — Fetch the list of active organizations for the dropdown.\n2. `POST /api/register` — Validates the chosen organization's status:\n   - If org is **pending** → `403` returned immediately. No account is created. Frontend shows \"org not approved yet\" page.\n   - If org is **active** → account is created (`is_active = false`). Returns `email` and `phone_number`.\n3. Choose an OTP channel and complete OTP (same as above).\n4. `POST /api/verify-otp?context=register` — OTP verified; account remains `is_active = false`.\n   Frontend shows \"awaiting org manager approval\" page.\n   The org manager then approves the doctor via their dashboard, which sets `is_active = true`\n   and sends the doctor an approval email (`DoctorApprovedMail`).\n\n---\n\n### Login Flow (3 steps)\n\n1. `POST /api/login` — Validate email & password. Returns `email` and `phone_number`.\n2. Choose an OTP channel (same as above).\n3. `POST /api/verify-otp?context=login` — Verifies OTP and logs the user in.\n\n---\n\nAll protected routes require a session cookie (Sanctum web guard).",
+        "version": "1.0.0"
+    },
+    "servers": [
+        {
+            "url": "/api",
+            "description": "Primary API Server"
+        }
+    ],
+    "paths": {
+        "/api/organizations/public": {
+            "get": {
+                "tags": [
+                    "Auth — Register"
+                ],
+                "summary": "List active organizations (for doctor registration dropdown)",
+                "description": "Returns a lightweight list of all **active** organizations.\n\nThis endpoint is **public** (no auth required) and is intended solely for populating\nthe organization dropdown on the doctor registration screen.\n\nOnly `id`, `name`, `type`, and `code` are returned — no sensitive data exposed.\nResults are ordered alphabetically by name.",
+                "operationId": "listOrganizations",
+                "parameters": [
+                    {
+                        "name": "type",
+                        "in": "query",
+                        "description": "Filter by organization type. Omit to return all types.",
+                        "required": false,
+                        "schema": {
+                            "type": "string",
+                            "enum": [
+                                "clinic",
+                                "hospital",
+                                "laboratory",
+                                "radiology_center"
+                            ]
+                        }
+                    },
+                    {
+                        "name": "search",
+                        "in": "query",
+                        "description": "Search organizations by name (case-insensitive partial match).",
+                        "required": false,
+                        "schema": {
+                            "type": "string",
+                            "example": "Ibn Sina"
+                        }
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "List of active organizations.",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "properties": {
+                                        "data": {
+                                            "type": "array",
+                                            "items": {
+                                                "properties": {
+                                                    "id": {
+                                                        "type": "integer",
+                                                        "example": 10
+                                                    },
+                                                    "name": {
+                                                        "type": "string",
+                                                        "example": "Ibn Sina Clinic"
+                                                    },
+                                                    "type": {
+                                                        "type": "string",
+                                                        "example": "clinic"
+                                                    },
+                                                    "code": {
+                                                        "type": "string",
+                                                        "example": "ORG-0010",
+                                                        "nullable": true
+                                                    }
+                                                },
+                                                "type": "object"
+                                            }
+                                        },
+                                        "total": {
+                                            "type": "integer",
+                                            "example": 42
+                                        }
+                                    },
+                                    "type": "object"
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        },
+        "/api/register": {
+            "post": {
+                "tags": [
+                    "Auth — Register"
+                ],
+                "summary": "Step 1 (Registration) — Create account and initiate OTP verification",
+                "description": "Creates a new user account in an **inactive** state and triggers OTP verification.\n\n### `role: org_manager`\n- Automatically provisions a new **Organization** record.\n- Account remains **inactive** until OTP is verified, at which point it is immediately activated.\n- Required extra fields: `organization_name`, `organization_type`.\n- Optional: `organization_address`, `plan_id`, `latitude`, `longitude`.\n\n---\n\n### `role: doctor`\nFetch available organizations first via `GET /api/organizations` to populate the dropdown.\n\nThe organization's approval status is checked **before** creating any account:\n\n| Org status  | Result |\n|---|---|\n| `pending`   | `403` returned immediately. No account created. Frontend shows \"org not approved yet\" page. |\n| `active`    | Account created (`is_active = false`). Proceed to OTP. |\n\nAfter OTP is verified, the account remains inactive until the **Org Manager approves** it\nfrom their dashboard. On approval, `is_active` is set to `true` and the doctor receives\nan approval email (`DoctorApprovedMail`).\n\nNext step → `POST /api/send-otp`",
+                "operationId": "register",
+                "requestBody": {
+                    "required": true,
+                    "content": {
+                        "application/json": {
+                            "schema": {
+                                "oneOf": [
+                                    {
+                                        "title": "Organization Manager",
+                                        "required": [
+                                            "name",
+                                            "email",
+                                            "password",
+                                            "phone_number",
+                                            "role",
+                                            "organization_name",
+                                            "organization_type"
+                                        ],
+                                        "properties": {
+                                            "name": {
+                                                "type": "string",
+                                                "example": "Karim Mansouri",
+                                                "maxLength": 255
+                                            },
+                                            "email": {
+                                                "type": "string",
+                                                "format": "email",
+                                                "example": "karim@ibnsina.dz"
+                                            },
+                                            "password": {
+                                                "type": "string",
+                                                "example": "SecurePass123",
+                                                "minLength": 8
+                                            },
+                                            "phone_number": {
+                                                "description": "Algerian local format accepted. Normalized to E.164 (+213XXXXXXXXX). Must be unique.",
+                                                "type": "string",
+                                                "example": "0551234567",
+                                                "maxLength": 20
+                                            },
+                                            "role": {
+                                                "type": "string",
+                                                "example": "org_manager",
+                                                "enum": [
+                                                    "org_manager"
+                                                ]
+                                            },
+                                            "organization_name": {
+                                                "type": "string",
+                                                "example": "Ibn Sina Clinic",
+                                                "maxLength": 255
+                                            },
+                                            "organization_type": {
+                                                "type": "string",
+                                                "example": "clinic",
+                                                "enum": [
+                                                    "clinic",
+                                                    "hospital",
+                                                    "laboratory",
+                                                    "radiology_center"
+                                                ]
+                                            },
+                                            "organization_address": {
+                                                "type": "string",
+                                                "example": "12 Rue Didouche Mourad, Algiers",
+                                                "nullable": true,
+                                                "maxLength": 500
+                                            },
+                                            "plan_id": {
+                                                "type": "integer",
+                                                "example": null,
+                                                "nullable": true
+                                            },
+                                            "latitude": {
+                                                "type": "number",
+                                                "format": "float",
+                                                "example": 36.7372,
+                                                "nullable": true
+                                            },
+                                            "longitude": {
+                                                "type": "number",
+                                                "format": "float",
+                                                "example": 3.0866,
+                                                "nullable": true
+                                            }
+                                        },
+                                        "type": "object"
+                                    },
+                                    {
+                                        "title": "Doctor",
+                                        "required": [
+                                            "name",
+                                            "email",
+                                            "password",
+                                            "phone_number",
+                                            "role",
+                                            "organization_id"
+                                        ],
+                                        "properties": {
+                                            "name": {
+                                                "type": "string",
+                                                "example": "Dr. Amina Belkacem",
+                                                "maxLength": 255
+                                            },
+                                            "email": {
+                                                "type": "string",
+                                                "format": "email",
+                                                "example": "amina@clinic.dz"
+                                            },
+                                            "password": {
+                                                "type": "string",
+                                                "example": "SecurePass123",
+                                                "minLength": 8
+                                            },
+                                            "phone_number": {
+                                                "description": "Required for WhatsApp OTP. Normalized to E.164. Must be unique.",
+                                                "type": "string",
+                                                "example": "0661234567",
+                                                "maxLength": 20
+                                            },
+                                            "role": {
+                                                "type": "string",
+                                                "example": "doctor",
+                                                "enum": [
+                                                    "doctor"
+                                                ]
+                                            },
+                                            "organization_id": {
+                                                "description": "ID from `GET /api/organizations`. Must be an active organization.",
+                                                "type": "integer",
+                                                "example": 10
+                                            }
+                                        },
+                                        "type": "object"
+                                    }
+                                ]
+                            }
+                        }
+                    }
+                },
+                "responses": {
+                    "201": {
+                        "description": "Account created but inactive. Proceed to `/api/send-otp` to verify identity.",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "properties": {
+                                        "message": {
+                                            "type": "string",
+                                            "example": "Registration successful. Please verify your identity via OTP."
+                                        },
+                                        "email": {
+                                            "type": "string",
+                                            "example": "amina@clinic.dz"
+                                        },
+                                        "phone_number": {
+                                            "description": "Always returned in normalized E.164 format. If `null`, only `email` OTP is available.",
+                                            "type": "string",
+                                            "example": "+213661234567",
+                                            "nullable": true
+                                        }
+                                    },
+                                    "type": "object"
+                                }
+                            }
+                        }
+                    },
+                    "403": {
+                        "description": "Doctor registration blocked — the selected organization has not been approved by the platform admin yet.",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "properties": {
+                                        "message": {
+                                            "type": "string",
+                                            "example": "The selected organization is not yet approved. Please try again later or contact the organization."
+                                        },
+                                        "reason": {
+                                            "type": "string",
+                                            "example": "org_pending"
+                                        }
+                                    },
+                                    "type": "object"
+                                }
+                            }
+                        }
+                    },
+                    "422": {
+                        "description": "Validation Error",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/ValidationError"
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        },
+        "/api/login": {
+            "post": {
+                "tags": [
+                    "Auth — Login (2-Step OTP)"
+                ],
+                "summary": "Step 1 (Login) — Validate credentials",
+                "description": "Validates email & password. **Does not issue a token or send an OTP.**\n\nOn success, returns the user's `email` and `phone_number`. The frontend uses these to render\nthe OTP channel selection screen:\n\n| Condition | Available channels |\n|---|---|\n| `phone_number` is `null` | Email only |\n| `phone_number` is present | Email **and** WhatsApp (via Twilio) |\n\nReturns `403` with a machine-readable `reason` if the account exists but is not yet active:\n\n| reason            | Meaning |\n|---|---|\n| `account_pending` | OTP was verified but the org manager has not approved the account yet. |\n\nNext step → `POST /api/send-otp`",
+                "operationId": "login",
+                "requestBody": {
+                    "required": true,
+                    "content": {
+                        "application/json": {
+                            "schema": {
+                                "required": [
+                                    "email",
+                                    "password"
+                                ],
+                                "properties": {
+                                    "email": {
+                                        "type": "string",
+                                        "format": "email",
+                                        "example": "amina@clinic.dz"
+                                    },
+                                    "password": {
+                                        "type": "string",
+                                        "format": "password",
+                                        "example": "SecurePass123"
+                                    },
+                                    "device_name": {
+                                        "type": "string",
+                                        "example": "Chrome on Windows",
+                                        "nullable": true
+                                    }
+                                },
+                                "type": "object"
+                            }
+                        }
+                    }
+                },
+                "responses": {
+                    "200": {
+                        "description": "Credentials are valid. Proceed to `/api/send-otp`.",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "properties": {
+                                        "message": {
+                                            "type": "string",
+                                            "example": "Credentials valid. Please proceed to request OTP."
+                                        },
+                                        "email": {
+                                            "type": "string",
+                                            "example": "amina@clinic.dz"
+                                        },
+                                        "phone_number": {
+                                            "type": "string",
+                                            "example": "+213661234567",
+                                            "nullable": true
+                                        }
+                                    },
+                                    "type": "object"
+                                }
+                            }
+                        }
+                    },
+                    "401": {
+                        "description": "Invalid credentials",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/UnauthorizedError"
+                                }
+                            }
+                        }
+                    },
+                    "403": {
+                        "description": "Account exists but is not yet active.",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "properties": {
+                                        "message": {
+                                            "type": "string",
+                                            "example": "Your account is awaiting approval by the Organization Manager."
+                                        },
+                                        "reason": {
+                                            "type": "string",
+                                            "example": "account_pending"
+                                        }
+                                    },
+                                    "type": "object"
+                                }
+                            }
+                        }
+                    },
+                    "422": {
+                        "description": "Validation Error",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/ValidationError"
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        },
+        "/api/send-otp": {
+            "post": {
+                "tags": [
+                    "Auth — Login (2-Step OTP)",
+                    "Auth — Register"
+                ],
+                "summary": "Step 2 — Request OTP (Email or WhatsApp via Twilio)",
+                "description": "Initiates OTP delivery. Used in **both** the registration and login flows.\n\n---\n\n### `method: email`\nThe backend generates a **6-digit code**, stores it hashed, and queues an email.\n- Code expires in **10 minutes**.\n- Next: `POST /api/verify-otp` with `{ email, otp: \"123456\" }`\n\n---\n\n### `method: whatsapp`\nThe backend generates a **6-digit code**, stores it hashed, and sends it via\n**Twilio WhatsApp** using a pre-approved content template (`TWILIO_CONTENT_SID`).\n- Code expires in **10 minutes**.\n- Requires the user account to have a `phone_number` in E.164 format.\n- Next: `POST /api/verify-otp` with `{ email, otp: \"123456\" }`\n\n> **Note:** The `is_active` check is intentionally skipped here.\n> Inactive accounts (mid-registration or pending org manager approval) must still\n> be able to receive an OTP to complete the flow.",
+                "operationId": "sendOtp",
+                "requestBody": {
+                    "required": true,
+                    "content": {
+                        "application/json": {
+                            "schema": {
+                                "required": [
+                                    "email",
+                                    "method"
+                                ],
+                                "properties": {
+                                    "email": {
+                                        "type": "string",
+                                        "format": "email",
+                                        "example": "amina@clinic.dz"
+                                    },
+                                    "method": {
+                                        "description": "`email` — backend sends a 6-digit code by email. `whatsapp` — backend sends via Twilio WhatsApp.",
+                                        "type": "string",
+                                        "example": "whatsapp",
+                                        "enum": [
+                                            "email",
+                                            "whatsapp"
+                                        ]
+                                    }
+                                },
+                                "type": "object"
+                            }
+                        }
+                    }
+                },
+                "responses": {
+                    "200": {
+                        "description": "OTP sent. Check `channel` to confirm delivery method.",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "properties": {
+                                        "message": {
+                                            "type": "string",
+                                            "example": "OTP sent successfully."
+                                        },
+                                        "channel": {
+                                            "type": "string",
+                                            "example": "whatsapp",
+                                            "enum": [
+                                                "email",
+                                                "whatsapp"
+                                            ]
+                                        }
+                                    },
+                                    "type": "object"
+                                }
+                            }
+                        }
+                    },
+                    "400": {
+                        "description": "WhatsApp requested but no phone number on account",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "properties": {
+                                        "message": {
+                                            "type": "string",
+                                            "example": "Phone number is required for WhatsApp OTP."
+                                        }
+                                    },
+                                    "type": "object"
+                                }
+                            }
+                        }
+                    },
+                    "500": {
+                        "description": "OTP delivery failed",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "properties": {
+                                        "message": {
+                                            "type": "string",
+                                            "example": "Failed to send OTP. Please try again."
+                                        }
+                                    },
+                                    "type": "object"
+                                }
+                            }
+                        }
+                    },
+                    "422": {
+                        "description": "Validation Error",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/ValidationError"
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        },
+        "/api/verify-otp": {
+            "post": {
+                "tags": [
+                    "Auth — Login (2-Step OTP)",
+                    "Auth — Register"
+                ],
+                "summary": "Step 3 — Verify OTP (Email or WhatsApp)",
+                "description": "Final step of both the **registration** and **login** flows.\n\nPass `?context=register` when coming from registration, or `?context=login` when coming from login.\n\n| context    | Role          | Behaviour on success |\n|---|---|---|\n| `register` | `org_manager` | Activates account (`is_active = true`), logs in, returns `200` with user object. |\n| `register` | `doctor`      | OTP verified; account stays inactive pending org manager approval. Returns `202`. No login. |\n| `login`    | any           | Logs in directly. Account must already be active. |\n\nThe same 6-digit code is used whether the OTP was sent via email or WhatsApp.\n\nOn success: the OTP record is deleted immediately (single-use).",
+                "operationId": "verifyOtp",
+                "parameters": [
+                    {
+                        "name": "context",
+                        "in": "query",
+                        "description": "`register` — coming from registration flow. `login` — coming from login flow.",
+                        "required": true,
+                        "schema": {
+                            "type": "string",
+                            "enum": [
+                                "register",
+                                "login"
+                            ]
+                        }
+                    }
+                ],
+                "requestBody": {
+                    "required": true,
+                    "content": {
+                        "application/json": {
+                            "schema": {
+                                "required": [
+                                    "email",
+                                    "otp"
+                                ],
+                                "properties": {
+                                    "email": {
+                                        "type": "string",
+                                        "format": "email",
+                                        "example": "amina@clinic.dz"
+                                    },
+                                    "otp": {
+                                        "description": "The 6-digit code received via email or WhatsApp.",
+                                        "type": "string",
+                                        "example": "847291",
+                                        "maxLength": 6,
+                                        "minLength": 6
+                                    }
+                                },
+                                "type": "object"
+                            }
+                        }
+                    }
+                },
+                "responses": {
+                    "200": {
+                        "description": "Verified and authenticated.",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "properties": {
+                                        "message": {
+                                            "type": "string",
+                                            "example": "Login successful."
+                                        },
+                                        "user": {
+                                            "$ref": "#/components/schemas/UserResource"
+                                        }
+                                    },
+                                    "type": "object"
+                                }
+                            }
+                        }
+                    },
+                    "202": {
+                        "description": "OTP verified (registration, doctor role). Account awaits org manager approval.",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "properties": {
+                                        "message": {
+                                            "type": "string",
+                                            "example": "Identity verified. Your account is awaiting approval by the Organization Manager."
+                                        },
+                                        "reason": {
+                                            "type": "string",
+                                            "example": "awaiting_org_approval"
+                                        }
+                                    },
+                                    "type": "object"
+                                }
+                            }
+                        }
+                    },
+                    "400": {
+                        "description": "Invalid or expired OTP",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "properties": {
+                                        "message": {
+                                            "type": "string",
+                                            "example": "The OTP is invalid or has expired."
+                                        }
+                                    },
+                                    "type": "object"
+                                }
+                            }
+                        }
+                    },
+                    "422": {
+                        "description": "Validation Error",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/ValidationError"
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        },
+        "/api/logout": {
+            "post": {
+                "tags": [
+                    "Auth"
+                ],
+                "summary": "Logout the authenticated user",
+                "description": "Invalidates the current Sanctum session. The session cookie is cleared server-side.",
+                "operationId": "logout",
+                "responses": {
+                    "200": {
+                        "description": "Logged out successfully.",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "properties": {
+                                        "message": {
+                                            "type": "string",
+                                            "example": "Logged out successfully."
+                                        }
+                                    },
+                                    "type": "object"
+                                }
+                            }
+                        }
+                    },
+                    "401": {
+                        "description": "Unauthenticated",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "properties": {
+                                        "message": {
+                                            "type": "string",
+                                            "example": "Unauthenticated."
+                                        }
+                                    },
+                                    "type": "object"
+                                }
+                            }
+                        }
+                    }
+                },
+                "security": [
+                    {
+                        "sanctum": []
+                    }
+                ]
+            }
+        },
+        "/api/user": {
+            "get": {
+                "tags": [
+                    "Auth"
+                ],
+                "summary": "Get the authenticated user's profile",
+                "description": "Returns the full profile of the currently authenticated user including roles and organization details.",
+                "operationId": "me",
+                "responses": {
+                    "200": {
+                        "description": "Authenticated user profile.",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/UserResource"
+                                }
+                            }
+                        }
+                    },
+                    "401": {
+                        "description": "Unauthenticated",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "properties": {
+                                        "message": {
+                                            "type": "string",
+                                            "example": "Unauthenticated."
+                                        }
+                                    },
+                                    "type": "object"
+                                }
+                            }
+                        }
+                    }
+                },
+                "security": [
+                    {
+                        "sanctum": []
+                    }
+                ]
+            }
+        },
+        "/api/organizations": {
+            "get": {
+                "tags": [
+                    "Admin - Organizations"
+                ],
+                "operationId": "a6f3e52e9b7995087fc40990424c2977",
+                "responses": {
+                    "200": {
+                        "description": "List all (Admin)"
+                    }
+                },
+                "security": [
+                    {
+                        "sanctum": []
+                    }
+                ]
+            },
+            "post": {
+                "tags": [
+                    "Admin - Organizations"
+                ],
+                "operationId": "383fb9d4f91db3e68d25843995206055",
+                "requestBody": {
+                    "required": true,
+                    "content": {
+                        "application/json": {
+                            "schema": {
+                                "required": [
+                                    "name",
+                                    "plan_id",
+                                    "type",
+                                    "contact_email"
+                                ],
+                                "properties": {
+                                    "name": {
+                                        "type": "string",
+                                        "example": "City Clinic"
+                                    },
+                                    "plan_id": {
+                                        "type": "integer",
+                                        "example": 1
+                                    },
+                                    "type": {
+                                        "type": "string",
+                                        "example": "clinic"
+                                    },
+                                    "contact_email": {
+                                        "type": "string",
+                                        "format": "email",
+                                        "example": "admin@cityclinic.com"
+                                    },
+                                    "address": {
+                                        "type": "string",
+                                        "example": "456 Wellness Ave"
+                                    }
+                                },
+                                "type": "object"
+                            }
+                        }
+                    }
+                },
+                "responses": {
+                    "201": {
+                        "description": "Created"
+                    }
+                },
+                "security": [
+                    {
+                        "sanctum": []
+                    }
+                ]
+            }
+        },
+        "/api/organization": {
+            "get": {
+                "tags": [
+                    "My Organization"
+                ],
+                "operationId": "db695a42bb5c63a1df5c4e8319d776ab",
+                "responses": {
+                    "200": {
+                        "description": "Show my org"
+                    }
+                },
+                "security": [
+                    {
+                        "sanctum": []
+                    }
+                ]
+            },
+            "put": {
+                "tags": [
+                    "My Organization"
+                ],
+                "operationId": "fa641aea3f903f9baef9335785af87aa",
+                "requestBody": {
+                    "required": true,
+                    "content": {
+                        "application/json": {
+                            "schema": {
+                                "properties": {
+                                    "name": {
+                                        "type": "string",
+                                        "example": "Updated Clinic Name"
+                                    },
+                                    "type": {
+                                        "type": "string",
+                                        "example": "hospital"
+                                    },
+                                    "address": {
+                                        "type": "string",
+                                        "example": "Updated Address"
+                                    },
+                                    "contact_email": {
+                                        "type": "string",
+                                        "format": "email"
+                                    },
+                                    "plan_id": {
+                                        "description": "Admin only",
+                                        "type": "integer"
+                                    },
+                                    "subscription_status": {
+                                        "description": "Admin only",
+                                        "type": "string",
+                                        "enum": [
+                                            "trial",
+                                            "active",
+                                            "past_due",
+                                            "canceled"
+                                        ]
+                                    }
+                                },
+                                "type": "object"
+                            }
+                        }
+                    }
+                },
+                "responses": {
+                    "200": {
+                        "description": "Update my org"
+                    }
+                },
+                "security": [
+                    {
+                        "sanctum": []
+                    }
+                ]
+            }
+        },
+        "/api/organizations/{organization}/approve": {
+            "post": {
+                "tags": [
+                    "Admin - Organizations"
+                ],
+                "operationId": "5e9c1c3225e1a0c0a1803489c762643a",
+                "parameters": [
+                    {
+                        "name": "organization",
+                        "in": "path",
+                        "required": true,
+                        "schema": {
+                            "type": "integer"
+                        }
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "Organization approved"
+                    }
+                },
+                "security": [
+                    {
+                        "sanctum": []
+                    }
+                ]
+            }
+        },
+        "/api/organizations/{organization}": {
+            "delete": {
+                "tags": [
+                    "Admin - Organizations"
+                ],
+                "operationId": "28a313ba6727c3bb07e0b5d24a5efc3a",
+                "parameters": [
+                    {
+                        "name": "organization",
+                        "in": "path",
+                        "required": true,
+                        "schema": {
+                            "type": "integer"
+                        }
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "Deleted"
+                    }
+                },
+                "security": [
+                    {
+                        "sanctum": []
+                    }
+                ]
+            }
+        }
+    },
+    "components": {
+        "schemas": {
+            "UserResource": {
+                "properties": {
+                    "id": {
+                        "type": "integer",
+                        "example": 1
+                    },
+                    "name": {
+                        "type": "string",
+                        "example": "Dr. Amina Belkacem"
+                    },
+                    "email": {
+                        "type": "string",
+                        "format": "email",
+                        "example": "amina@clinic.dz"
+                    },
+                    "phone_number": {
+                        "type": "string",
+                        "example": "+213661234567",
+                        "nullable": true
+                    },
+                    "is_active": {
+                        "type": "boolean",
+                        "example": true
+                    },
+                    "organization": {
+                        "properties": {
+                            "id": {
+                                "type": "integer",
+                                "example": 10
+                            },
+                            "name": {
+                                "type": "string",
+                                "example": "Ibn Sina Clinic"
+                            },
+                            "type": {
+                                "type": "string",
+                                "example": "clinic"
+                            },
+                            "status": {
+                                "type": "string",
+                                "example": "active"
+                            }
+                        },
+                        "type": "object",
+                        "nullable": true
+                    },
+                    "roles": {
+                        "type": "array",
+                        "items": {
+                            "type": "string"
+                        },
+                        "example": [
+                            "doctor"
+                        ]
+                    }
+                },
+                "type": "object"
+            },
+            "ValidationError": {
+                "properties": {
+                    "message": {
+                        "type": "string",
+                        "example": "The given data was invalid."
+                    },
+                    "errors": {
+                        "type": "object",
+                        "example": {
+                            "email": [
+                                "The email field is required."
+                            ]
+                        }
+                    }
+                },
+                "type": "object"
+            },
+            "UnauthorizedError": {
+                "properties": {
+                    "message": {
+                        "type": "string",
+                        "example": "Invalid credentials."
+                    }
+                },
+                "type": "object"
+            },
+            "ForbiddenError": {
+                "properties": {
+                    "message": {
+                        "type": "string",
+                        "example": "Your account is pending activation."
+                    }
+                },
+                "type": "object"
+            }
+        },
+        "securitySchemes": {
+            "sanctum": {
+                "type": "http",
+                "description": "Session cookie issued by Sanctum after a successful `/api/verify-otp` call.",
+                "bearerFormat": "JWT",
+                "scheme": "bearer"
+            }
+        }
+    },
+    "tags": [
+        {
+            "name": "Auth — Register",
+            "description": "Auth — Register"
+        },
+        {
+            "name": "Auth — Login (2-Step OTP)",
+            "description": "Auth — Login (2-Step OTP)"
+        },
+        {
+            "name": "Auth",
+            "description": "Auth"
+        },
+        {
+            "name": "Admin - Organizations",
+            "description": "Admin - Organizations"
+        },
+        {
+            "name": "My Organization",
+            "description": "My Organization"
+        }
+    ]
+}

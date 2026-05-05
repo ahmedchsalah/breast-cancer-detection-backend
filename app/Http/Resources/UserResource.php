@@ -24,13 +24,18 @@ class UserResource extends JsonResource
             // Format the date nicely (e.g., "10 Feb 2026 12:08 PM")
             'joined_at' => $this->created_at->format('d M Y h:i A'),
 
-            // Clean Organization Object
-            'organization' => [
+            // Clean Organization Object (Updated with new schema)
+            'organization' => $this->organization ? [
+                'id' => $this->organization->id, // مهم جداً للـ Frontend (خاصة للطبيب)
                 'name' => $this->organization->name,
-                'code' => $this->organization->code,
                 'type' => $this->organization->type,
+                'address' => $this->organization->address,
+                'latitude' => $this->organization->latitude,
+                'longitude' => $this->organization->longitude,
+                'status' => $this->organization->status, // pending, active, etc.
+                'subscription_status' => $this->organization->subscription_status,
                 'plan_id' => $this->organization->plan_id,
-            ],
+            ] : null,
         ];
     }
 }

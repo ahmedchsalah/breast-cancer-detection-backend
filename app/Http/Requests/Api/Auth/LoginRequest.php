@@ -1,10 +1,10 @@
 <?php
 
-namespace App\Http\Requests\Organization;
+namespace App\Http\Requests\Api\Auth;
 
 use Illuminate\Foundation\Http\FormRequest;
 
-class UpdateOrganizationRequest extends FormRequest
+class LoginRequest extends FormRequest
 {
     /**
      * Determine if the user is authorized to make this request.
@@ -22,9 +22,9 @@ class UpdateOrganizationRequest extends FormRequest
     public function rules(): array
     {
         return [
-            'name'          => ['required', 'string', 'max:255'],
-            'address'       => ['nullable', 'string', 'max:500'],
-            'contact_email' => ['required', 'email', 'max:255'],
+            'email' => ['required', 'email'],
+            'password' => ['required', 'string'],
+            'device_name' => ['nullable', 'string'], // Optional: 'iPhone 15', 'Chrome', etc.
         ];
     }
 }

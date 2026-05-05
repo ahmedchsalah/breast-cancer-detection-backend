@@ -1,6 +1,6 @@
 <?php
 
-namespace App\Http\Requests\Api;
+namespace App\Http\Requests\Api\Auth;
 
 use Illuminate\Foundation\Http\FormRequest;
 use Illuminate\Validation\Rule;
@@ -22,9 +22,11 @@ class RegisterRequest extends FormRequest
     public function rules(): array
     {
         return [
+            // 1. Basic User Fields
             'name' => ['required', 'string', 'max:255'],
             'email' => ['required', 'email', 'unique:users,email'],
-            'password' => ['required', 'string', 'min:8', 'confirmed'], // requires password_confirmation field
+            'password' => ['required', 'string', 'min:8'], // requires password_confirmation field
+            'phone_number' => ['required', 'string', 'max:20', 'unique:users,phone_number'],
             'role' => ['required', Rule::in(['org_manager', 'doctor'])],
 
             // 2. Organization Manager Fields (Required if role is org_manager)
@@ -34,20 +36,20 @@ class RegisterRequest extends FormRequest
                 'max:255'
             ],
             'plan_id' => [
-                'required_if:role,org_manager',
-                'exists:plans,id' // Validates that ID 1 or 2 exists in your DB
+                'nullable', // أصبحت اختيارية ليتم تحديدها لاحقاً بعد دفع الاشتراك
+                'exists:plans,id'
             ],
             'organization_address' => ['nullable', 'string', 'max:500'],
-
-            // 3. Doctor Fields (Required if role is doctor)
-            'organization_code' => [
-                'required_if:role,doctor',
-                'exists:organizations,code' // Checks if the clinic code is real
-            ],
             'organization_type' => [
                 'required_if:role,org_manager',
                 'string',
-                'in:clinic,hospital,research_lab' // <--- Restrict to valid types only
+                'in:clinic,hospital,laboratory,radiology_center' // <--- تم التحديث لتتطابق مع الـ Enum تماماً
+            ],
+
+            // 3. Doctor Fields (Required if role is doctor)
+            'organization_id' => [ // <--- تم تغييرها من code إلى id بناءً على استخدام القائمة المنسدلة
+                'required_if:role,doctor',
+                'exists:organizations,id' // التحقق من أن المنظمة موجودة فعلاً في قاعدة البيانات
             ],
         ];
     }
