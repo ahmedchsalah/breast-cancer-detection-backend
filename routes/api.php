@@ -12,18 +12,21 @@ use App\Http\Controllers\WhatsappController;
 
 // --- Public Authentication Routes ---
 
-Route::get('/test-whatsapp-otp', [WhatsappController::class, 'sendOtp']);
+// --- Public Authentication Routes ---
 Route::post('/register', [AuthController::class, 'register']);
 Route::post('/login', [AuthController::class, 'login']);
 Route::post('/send-otp', [AuthController::class, 'sendOtp']);
 Route::post('/verify-otp', [AuthController::class, 'verifyOtp']);
+
+// --- Public Organization list (doctor registration dropdown) ---
+Route::get('/organizations/public', [AuthController::class, 'organizations']); // ← THIS WAS MISSING
 
 // --- Public Plan & Checkout Routes ---
 Route::get('/plans', [PlanController::class, 'index']);
 Route::get('/plans/{plan}', [PlanController::class, 'show']);
 Route::post('/checkout', [PaymentController::class, 'createCheckout']);
 
-// --- Protected Routes (Require Valid Sanctum Token) ---
+// --- Protected Routes ---
 Route::middleware(['auth:sanctum'])->group(function () {
 
     Route::post('/logout', [AuthController::class, 'logout']);
