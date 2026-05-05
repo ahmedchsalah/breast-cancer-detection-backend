@@ -23,6 +23,7 @@ class User extends Authenticatable
         'name',
         'email',
         'password',
+        'phone_number',
         'organization_id', // <--- IMPORTANT: Needed for mass assignment
         'is_active',       // <--- IMPORTANT: Needed for mass assignment
     ];
