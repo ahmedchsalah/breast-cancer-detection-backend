@@ -12,12 +12,8 @@ return Application::configure(basePath: dirname(__DIR__))
         health: '/up',
     )
     ->withMiddleware(function (Middleware $middleware): void {
-        $middleware->statefulApi();
-        $middleware->append(App\Http\Middleware\SetLocale::class);
-        // ADD THIS LINE:
-        $middleware->validateCsrfTokens(except: [
-            '/test-whatsapp-otp',
-        ]);
+        $middleware->append(\App\Http\Middleware\SetLocale::class);
+        $middleware->append(\App\Http\Middleware\TokenFromCookie::class);
     })
     ->withExceptions(function (Exceptions $exceptions): void {
         //

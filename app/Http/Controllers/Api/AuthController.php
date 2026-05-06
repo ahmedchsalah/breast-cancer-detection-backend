@@ -12,7 +12,6 @@ use Illuminate\Support\Facades\Hash;
 use Illuminate\Support\Facades\Auth;
 use Illuminate\Support\Facades\Mail;
 use Carbon\Carbon;
-use Twilio\Rest\Client as TwilioClient;
 use App\Http\Requests\Api\Auth\LoginRequest;
 use App\Http\Requests\Api\Auth\RegisterRequest;
 use App\Http\Controllers\Controller;
@@ -34,8 +33,8 @@ use OpenApi\Attributes as OA;
     securityScheme: "sanctum",
     type: "http",
     scheme: "bearer",
-    bearerFormat: "JWT",
-    description: "Session cookie issued by Sanctum after a successful `/api/verify-otp` call."
+    bearerFormat: "Token",
+    description: "HttpOnly cookie issued by Sanctum after a successful `/api/verify-otp` call."
 )]
 
 #[OA\Schema(
@@ -216,27 +215,21 @@ class AuthController extends Controller
     }
 
     // ============================================================
-    //  SEND OTP
+    //  SEND OTP — WhatsApp removed, email only
     // ============================================================
 
     public function sendOtp(Request $request)
     {
         $request->validate([
             'email'  => 'required|email|exists:users,email',
-            'method' => 'required|in:email,whatsapp',
+            'method' => 'required|in:email',
         ]);
 
         $user = User::where('email', $request->email)->first();
 
-        if ($request->method === 'whatsapp' && empty($user->phone_number)) {
-            return response()->json(['message' => 'Phone number is required for WhatsApp OTP.'], 400);
-        }
-
-        // Generate OTP as a zero-padded 6-digit STRING to avoid leading zero issues
         $otpInt    = rand(100000, 999999);
         $otpString = str_pad((string) $otpInt, 6, '0', STR_PAD_LEFT);
 
-        // Store as string explicitly
         Otp::updateOrCreate(
             ['identifier' => $user->email],
             [
@@ -246,42 +239,17 @@ class AuthController extends Controller
             ]
         );
 
-        if ($request->method === 'whatsapp') {
-            try {
-                $twilio = new TwilioClient(
-                    config('services.twilio.sid'),
-                    config('services.twilio.auth_token')
-                );
-
-                $twilio->messages->create(
-                    "whatsapp:{$user->phone_number}",
-                    [
-                        'from'             => 'whatsapp:' . config('services.twilio.whatsapp_from'),
-                        'contentSid'       => config('services.twilio.content_sid'),
-                        'contentVariables' => json_encode(['1' => $otpString]),
-                    ]
-                );
-
-                $channel = 'whatsapp';
-            } catch (\Exception $e) {
-                \Log::error('WhatsApp OTP Error: ' . $e->getMessage());
-                Otp::where('identifier', $user->email)->delete();
-                return response()->json(['message' => 'Failed to send OTP via WhatsApp. Please try again.'], 500);
-            }
-        } else {
-            try {
-                Mail::to($user->email)->send(new OtpMail($otpString, $user));
-                $channel = 'email';
-            } catch (\Exception $e) {
-                \Log::error('OTP Email Error: ' . $e->getMessage());
-                Otp::where('identifier', $user->email)->delete();
-                return response()->json(['message' => 'Failed to send OTP via email. Please try again.'], 500);
-            }
+        try {
+            Mail::to($user->email)->send(new OtpMail($otpString, $user));
+        } catch (\Exception $e) {
+            \Log::error('OTP Email Error: ' . $e->getMessage());
+            Otp::where('identifier', $user->email)->delete();
+            return response()->json(['message' => 'Failed to send OTP via email. Please try again.'], 500);
         }
 
         return response()->json([
             'message' => 'OTP sent successfully.',
-            'channel' => $channel,
+            'channel' => 'email',
         ]);
     }
 
@@ -300,14 +268,12 @@ class AuthController extends Controller
 
         $otpRecord = Otp::where('identifier', $request->email)->first();
 
-        // No OTP record found at all
         if (!$otpRecord) {
             return response()->json([
                 'message' => 'No OTP was requested for this email. Please request a new one.',
             ], 400);
         }
 
-        // OTP expired — give a specific message so frontend can prompt resend
         if (Carbon::now()->gt(Carbon::parse($otpRecord->expires_at))) {
             $otpRecord->delete();
             return response()->json([
@@ -316,7 +282,6 @@ class AuthController extends Controller
             ], 400);
         }
 
-        // Strict string comparison — fixes integer casting / leading zero issues
         if (trim((string) $otpRecord->token) !== trim((string) $request->otp)) {
             return response()->json([
                 'message' => 'The OTP you entered is incorrect. Please check and try again.',
@@ -324,32 +289,25 @@ class AuthController extends Controller
             ], 400);
         }
 
-        // Valid — delete immediately (single-use)
         $otpRecord->delete();
 
         $user = User::where('email', $request->email)->firstOrFail();
 
-        // ============================================================
-        // FIX 1: Handle register context first and return early
-        // ============================================================
+        // Handle register context
         if ($context === 'register') {
             if ($user->hasRole('doctor')) {
-                // Doctor waits for org_manager approval — do NOT log in
                 return response()->json([
                     'message' => 'Identity verified. Your account is awaiting approval by the Organization Manager.',
                     'reason'  => 'awaiting_org_approval',
                 ], 202);
             }
 
-            // org_manager: activate immediately then fall through to login below
+            // org_manager: activate immediately
             $user->is_active = true;
             $user->save();
         }
 
-        // ============================================================
-        // FIX 2: Guard against inactive users reaching login
-        // Covers edge cases where account_pending slips through
-        // ============================================================
+        // Guard inactive users
         if (!$user->is_active) {
             return response()->json([
                 'message' => __('messages.account_pending'),
@@ -357,12 +315,24 @@ class AuthController extends Controller
             ], 403);
         }
 
-        Auth::guard('web')->login($user);
+        // Issue Sanctum token and store in HttpOnly cookie
+        // JS cannot read this cookie — XSS safe
+        $token = $user->createToken('web')->plainTextToken;
 
         return response()->json([
             'message' => __('messages.login_successful'),
             'user'    => new UserResource($user->load('organization')),
-        ]);
+        ])->cookie(
+            'auth_token',  // cookie name
+            $token,        // Sanctum token — invisible to JS
+            60 * 24 * 7,   // 7 days
+            '/',           // path
+            null,          // domain
+            true,          // secure (HTTPS only)
+            true,          // httpOnly (JS cannot read)
+            false,         // raw
+            'None'         // SameSite=None — required for cross-domain
+        );
     }
 
     // ============================================================
@@ -371,11 +341,23 @@ class AuthController extends Controller
 
     public function logout(Request $request)
     {
-        Auth::guard('web')->logout();
-        $request->session()->invalidate();
-        $request->session()->regenerateToken();
+        // Revoke token from database
+        $request->user()->currentAccessToken()->delete();
 
-        return response()->json(['message' => __('messages.logged_out')]);
+        // Delete cookie on client by expiring it
+        return response()->json([
+            'message' => __('messages.logged_out'),
+        ])->cookie(
+            'auth_token',
+            '',
+            -1,
+            '/',
+            null,
+            true,
+            true,
+            false,
+            'None'
+        );
     }
 
     // ============================================================
@@ -384,7 +366,9 @@ class AuthController extends Controller
 
     public function me()
     {
-        return response()->json(new UserResource(auth()->user()->load(['roles', 'organization'])));
+        return response()->json(
+            new UserResource(auth()->user()->load(['roles', 'organization']))
+        );
     }
 
     // ============================================================
