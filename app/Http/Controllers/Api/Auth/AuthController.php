@@ -101,6 +101,39 @@ class AuthController extends Controller
     //  ORGANIZATIONS — Public list for doctor registration dropdown
     // ============================================================
 
+    #[OA\Get(
+        path: "/auth/organizations",
+        tags: ["Authentication"],
+        summary: "Public list for doctor registration dropdown",
+        parameters: [
+            new OA\Parameter(name: "type", in: "query", required: false, schema: new OA\Schema(type: "string", enum: ["clinic", "hospital", "laboratory", "radiology_center"])),
+            new OA\Parameter(name: "search", in: "query", required: false, schema: new OA\Schema(type: "string")),
+        ],
+        responses: [
+            new OA\Response(
+                response: 200,
+                description: "List of active organizations",
+                content: new OA\JsonContent(
+                    properties: [
+                        new OA\Property(
+                            property: "data",
+                            type: "array",
+                            items: new OA\Items(
+                                type: "object",
+                                properties: [
+                                    new OA\Property(property: "id", type: "integer"),
+                                    new OA\Property(property: "name", type: "string"),
+                                    new OA\Property(property: "type", type: "string"),
+                                    new OA\Property(property: "code", type: "string"),
+                                ]
+                            )
+                        ),
+                        new OA\Property(property: "total", type: "integer"),
+                    ]
+                )
+            )
+        ]
+    )]
     public function organizations(Request $request)
     {
         $request->validate([
@@ -132,6 +165,34 @@ class AuthController extends Controller
     //  REGISTER
     // ============================================================
 
+    #[OA\Post(
+        path: "/auth/register",
+        tags: ["Authentication"],
+        summary: "Register a new user (Doctor or Org Manager)",
+        requestBody: new OA\RequestBody(
+            required: true,
+            content: new OA\JsonContent(
+                required: ["name", "email", "password", "role"],
+                properties: [
+                    new OA\Property(property: "name", type: "string"),
+                    new OA\Property(property: "email", type: "string", format: "email"),
+                    new OA\Property(property: "password", type: "string", format: "password"),
+                    new OA\Property(property: "password_confirmation", type: "string", format: "password"),
+                    new OA\Property(property: "role", type: "string", enum: ["doctor", "org_manager"]),
+                    new OA\Property(property: "phone_number", type: "string", nullable: true),
+                    new OA\Property(property: "organization_id", type: "integer", nullable: true),
+                    new OA\Property(property: "organization_name", type: "string", nullable: true),
+                    new OA\Property(property: "organization_type", type: "string", nullable: true),
+                    new OA\Property(property: "organization_address", type: "string", nullable: true),
+                ]
+            )
+        ),
+        responses: [
+            new OA\Response(response: 201, description: "Registration successful"),
+            new OA\Response(response: 403, description: "Organization not active"),
+            new OA\Response(response: 422, description: "Validation error"),
+        ]
+    )]
     public function register(RegisterRequest $request)
     {
         if ($request->role === 'doctor') {
@@ -192,6 +253,26 @@ class AuthController extends Controller
     //  LOGIN
     // ============================================================
 
+    #[OA\Post(
+        path: "/auth/login",
+        tags: ["Authentication"],
+        summary: "Login and request OTP",
+        requestBody: new OA\RequestBody(
+            required: true,
+            content: new OA\JsonContent(
+                required: ["email", "password"],
+                properties: [
+                    new OA\Property(property: "email", type: "string", format: "email"),
+                    new OA\Property(property: "password", type: "string", format: "password"),
+                ]
+            )
+        ),
+        responses: [
+            new OA\Response(response: 200, description: "Credentials valid, proceed to OTP"),
+            new OA\Response(response: 401, description: "Invalid credentials"),
+            new OA\Response(response: 403, description: "Account pending activation"),
+        ]
+    )]
     public function login(LoginRequest $request)
     {
         $user = User::where('email', $request->email)->first();
@@ -218,6 +299,25 @@ class AuthController extends Controller
     //  SEND OTP — WhatsApp removed, email only
     // ============================================================
 
+    #[OA\Post(
+        path: "/auth/send-otp",
+        tags: ["Authentication"],
+        summary: "Send OTP to the user's email",
+        requestBody: new OA\RequestBody(
+            required: true,
+            content: new OA\JsonContent(
+                required: ["email", "method"],
+                properties: [
+                    new OA\Property(property: "email", type: "string", format: "email"),
+                    new OA\Property(property: "method", type: "string", enum: ["email"]),
+                ]
+            )
+        ),
+        responses: [
+            new OA\Response(response: 200, description: "OTP sent successfully"),
+            new OA\Response(response: 500, description: "Failed to send OTP"),
+        ]
+    )]
     public function sendOtp(Request $request)
     {
         $request->validate([
@@ -257,6 +357,30 @@ class AuthController extends Controller
     //  VERIFY OTP
     // ============================================================
 
+    #[OA\Post(
+        path: "/auth/verify-otp",
+        tags: ["Authentication"],
+        summary: "Verify OTP and login",
+        parameters: [
+            new OA\Parameter(name: "context", in: "query", required: false, schema: new OA\Schema(type: "string", enum: ["login", "register"])),
+        ],
+        requestBody: new OA\RequestBody(
+            required: true,
+            content: new OA\JsonContent(
+                required: ["email", "otp"],
+                properties: [
+                    new OA\Property(property: "email", type: "string", format: "email"),
+                    new OA\Property(property: "otp", type: "string"),
+                ]
+            )
+        ),
+        responses: [
+            new OA\Response(response: 200, description: "Login successful (returns Sanctum token in cookie)"),
+            new OA\Response(response: 202, description: "Identity verified, awaiting org approval"),
+            new OA\Response(response: 400, description: "Invalid or expired OTP"),
+            new OA\Response(response: 403, description: "Account pending activation"),
+        ]
+    )]
     public function verifyOtp(Request $request)
     {
         $request->validate([
@@ -339,6 +463,15 @@ class AuthController extends Controller
     //  LOGOUT
     // ============================================================
 
+    #[OA\Post(
+        path: "/auth/logout",
+        tags: ["Authentication"],
+        summary: "Logout the current user",
+        security: [["sanctum" => []]],
+        responses: [
+            new OA\Response(response: 200, description: "Logged out successfully"),
+        ]
+    )]
     public function logout(Request $request)
     {
         // Revoke token from database
@@ -364,6 +497,19 @@ class AuthController extends Controller
     //  ME
     // ============================================================
 
+    #[OA\Get(
+        path: "/auth/me",
+        tags: ["Authentication"],
+        summary: "Get the authenticated user's profile",
+        security: [["sanctum" => []]],
+        responses: [
+            new OA\Response(
+                response: 200,
+                description: "Authenticated user details",
+                content: new OA\JsonContent(ref: "#/components/schemas/UserResource")
+            ),
+        ]
+    )]
     public function me()
     {
         return response()->json(
