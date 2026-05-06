@@ -286,7 +286,7 @@ class AuthController extends Controller
     }
 
     // ============================================================
-    //  VERIFY OTP — Fixed: strict string comparison + better errors
+    //  VERIFY OTP
     // ============================================================
 
     public function verifyOtp(Request $request)
@@ -309,7 +309,7 @@ class AuthController extends Controller
 
         // OTP expired — give a specific message so frontend can prompt resend
         if (Carbon::now()->gt(Carbon::parse($otpRecord->expires_at))) {
-            $otpRecord->delete(); // clean up expired record
+            $otpRecord->delete();
             return response()->json([
                 'message' => 'Your OTP has expired. Please request a new one.',
                 'reason'  => 'otp_expired',
@@ -329,20 +329,35 @@ class AuthController extends Controller
 
         $user = User::where('email', $request->email)->firstOrFail();
 
+        // ============================================================
+        // FIX 1: Handle register context first and return early
+        // ============================================================
         if ($context === 'register') {
             if ($user->hasRole('doctor')) {
+                // Doctor waits for org_manager approval — do NOT log in
                 return response()->json([
                     'message' => 'Identity verified. Your account is awaiting approval by the Organization Manager.',
                     'reason'  => 'awaiting_org_approval',
                 ], 202);
             }
 
-            // org_manager: activate immediately
+            // org_manager: activate immediately then fall through to login below
             $user->is_active = true;
             $user->save();
         }
 
-        Auth::login($user);
+        // ============================================================
+        // FIX 2: Guard against inactive users reaching login
+        // Covers edge cases where account_pending slips through
+        // ============================================================
+        if (!$user->is_active) {
+            return response()->json([
+                'message' => __('messages.account_pending'),
+                'reason'  => 'account_pending',
+            ], 403);
+        }
+
+        Auth::guard('web')->login($user);
 
         return response()->json([
             'message' => __('messages.login_successful'),
