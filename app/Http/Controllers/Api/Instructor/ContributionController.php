@@ -7,12 +7,48 @@ use App\Models\FlContribution;
 use App\Models\FlRound;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
+use OpenApi\Attributes as OA;
 
+#[OA\Schema(
+    schema: "FlContributionObject",
+    type: "object",
+    properties: [
+        new OA\Property(property: "id", type: "integer"),
+        new OA\Property(property: "fl_round_id", type: "integer"),
+        new OA\Property(property: "organization_id", type: "integer"),
+        new OA\Property(property: "local_sample_size", type: "integer"),
+        new OA\Property(property: "local_accuracy_before", type: "number", format: "float"),
+        new OA\Property(property: "local_accuracy_after", type: "number", format: "float"),
+        new OA\Property(property: "weights_update_path", type: "string"),
+        new OA\Property(property: "created_at", type: "string", format: "date-time"),
+    ]
+)]
 class ContributionController extends Controller
 {
-    /**
-     * List all contributions for a given FL round.
-     */
+    // ============================================================
+    //  INDEX
+    // ============================================================
+
+    #[OA\Get(
+        path: "/instructor/contributions",
+        tags: ["Instructor — Contributions"],
+        summary: "List all contributions for a given FL round",
+        security: [["sanctum" => []]],
+        parameters: [
+            new OA\Parameter(name: "fl_round_id", in: "query", required: true, schema: new OA\Schema(type: "integer")),
+        ],
+        responses: [
+            new OA\Response(
+                response: 200,
+                description: "List of contributions",
+                content: new OA\JsonContent(
+                    type: "array",
+                    items: new OA\Items(ref: "#/components/schemas/FlContributionObject")
+                )
+            ),
+            new OA\Response(response: 422, description: "Validation error"),
+        ]
+    )]
     public function index(Request $request): JsonResponse
     {
         $request->validate([
@@ -26,9 +62,41 @@ class ContributionController extends Controller
         return response()->json($contributions);
     }
 
-    /**
-     * Record a contribution from an organization for a round.
-     */
+    // ============================================================
+    //  STORE
+    // ============================================================
+
+    #[OA\Post(
+        path: "/instructor/contributions",
+        tags: ["Instructor — Contributions"],
+        summary: "Record a contribution from an organization for a round",
+        security: [["sanctum" => []]],
+        requestBody: new OA\RequestBody(
+            required: true,
+            content: new OA\JsonContent(
+                required: [
+                    "fl_round_id",
+                    "organization_id",
+                    "local_sample_size",
+                    "local_accuracy_before",
+                    "local_accuracy_after",
+                    "weights_update_path"
+                ],
+                properties: [
+                    new OA\Property(property: "fl_round_id", type: "integer"),
+                    new OA\Property(property: "organization_id", type: "integer"),
+                    new OA\Property(property: "local_sample_size", type: "integer"),
+                    new OA\Property(property: "local_accuracy_before", type: "number", format: "float"),
+                    new OA\Property(property: "local_accuracy_after", type: "number", format: "float"),
+                    new OA\Property(property: "weights_update_path", type: "string"),
+                ]
+            )
+        ),
+        responses: [
+            new OA\Response(response: 201, description: "Contribution recorded", content: new OA\JsonContent(ref: "#/components/schemas/FlContributionObject")),
+            new OA\Response(response: 422, description: "Validation error / Duplicate contribution"),
+        ]
+    )]
     public function store(Request $request): JsonResponse
     {
         $validated = $request->validate([

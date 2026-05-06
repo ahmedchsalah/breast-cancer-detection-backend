@@ -7,7 +7,24 @@ use App\Models\Examination;
 use App\Models\Patient;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
+use OpenApi\Attributes as OA;
 
+#[OA\Schema(
+    schema: "ExaminationObject",
+    type: "object",
+    properties: [
+        new OA\Property(property: "id", type: "integer"),
+        new OA\Property(property: "patient_id", type: "integer"),
+        new OA\Property(property: "doctor_id", type: "integer"),
+        new OA\Property(property: "organization_id", type: "integer"),
+        new OA\Property(property: "status", type: "string", enum: ["draft", "submitted", "predicted", "concluded"]),
+        new OA\Property(property: "chief_complaint", type: "string", nullable: true),
+        new OA\Property(property: "clinical_notes", type: "string", nullable: true),
+        new OA\Property(property: "doctor_conclusion", type: "string", nullable: true),
+        new OA\Property(property: "examined_at", type: "string", format: "date-time", nullable: true),
+        new OA\Property(property: "created_at", type: "string", format: "date-time"),
+    ]
+)]
 class ExaminationController extends Controller
 {
     private function doctor()
@@ -15,9 +32,33 @@ class ExaminationController extends Controller
         return auth()->user();
     }
 
-    /**
-     * List examinations created by this doctor.
-     */
+    // ============================================================
+    //  INDEX
+    // ============================================================
+
+    #[OA\Get(
+        path: "/doctor/examinations",
+        tags: ["Doctor — Examinations"],
+        summary: "List examinations created by this doctor",
+        security: [["sanctum" => []]],
+        parameters: [
+            new OA\Parameter(name: "status", in: "query", required: false, schema: new OA\Schema(type: "string", enum: ["draft", "submitted", "predicted", "concluded"])),
+            new OA\Parameter(name: "patient_id", in: "query", required: false, schema: new OA\Schema(type: "integer")),
+        ],
+        responses: [
+            new OA\Response(
+                response: 200,
+                description: "Paginated list of examinations",
+                content: new OA\JsonContent(
+                    properties: [
+                        new OA\Property(property: "data", type: "array", items: new OA\Items(ref: "#/components/schemas/ExaminationObject")),
+                        new OA\Property(property: "current_page", type: "integer"),
+                        new OA\Property(property: "total", type: "integer"),
+                    ]
+                )
+            )
+        ]
+    )]
     public function index(Request $request): JsonResponse
     {
         $request->validate([
@@ -39,9 +80,28 @@ class ExaminationController extends Controller
         return response()->json($query->paginate(15));
     }
 
-    /**
-     * Show a single examination with all related data.
-     */
+    // ============================================================
+    //  SHOW
+    // ============================================================
+
+    #[OA\Get(
+        path: "/doctor/examinations/{id}",
+        tags: ["Doctor — Examinations"],
+        summary: "Show a single examination with all related data",
+        security: [["sanctum" => []]],
+        parameters: [
+            new OA\Parameter(name: "id", in: "path", required: true, schema: new OA\Schema(type: "integer")),
+        ],
+        responses: [
+            new OA\Response(
+                response: 200,
+                description: "Examination details",
+                content: new OA\JsonContent(ref: "#/components/schemas/ExaminationObject")
+            ),
+            new OA\Response(response: 403, description: "Not authorized to access this examination"),
+            new OA\Response(response: 404, description: "Not found"),
+        ]
+    )]
     public function show(Examination $examination): JsonResponse
     {
         $this->ensureOwnership($examination);
@@ -55,9 +115,33 @@ class ExaminationController extends Controller
         return response()->json($examination);
     }
 
-    /**
-     * Open a new examination for a patient.
-     */
+    // ============================================================
+    //  STORE
+    // ============================================================
+
+    #[OA\Post(
+        path: "/doctor/examinations",
+        tags: ["Doctor — Examinations"],
+        summary: "Open a new examination for a patient",
+        security: [["sanctum" => []]],
+        requestBody: new OA\RequestBody(
+            required: true,
+            content: new OA\JsonContent(
+                required: ["patient_id"],
+                properties: [
+                    new OA\Property(property: "patient_id", type: "integer"),
+                    new OA\Property(property: "chief_complaint", type: "string", nullable: true),
+                    new OA\Property(property: "clinical_notes", type: "string", nullable: true),
+                    new OA\Property(property: "examined_at", type: "string", format: "date", nullable: true),
+                ]
+            )
+        ),
+        responses: [
+            new OA\Response(response: 201, description: "Examination created", content: new OA\JsonContent(ref: "#/components/schemas/ExaminationObject")),
+            new OA\Response(response: 403, description: "Patient does not belong to your organization"),
+            new OA\Response(response: 422, description: "Validation error"),
+        ]
+    )]
     public function store(Request $request): JsonResponse
     {
         $doctor = $this->doctor();
@@ -84,9 +168,35 @@ class ExaminationController extends Controller
         return response()->json($examination, 201);
     }
 
-    /**
-     * Update examination notes/complaint (only while in draft/submitted state).
-     */
+    // ============================================================
+    //  UPDATE
+    // ============================================================
+
+    #[OA\Put(
+        path: "/doctor/examinations/{id}",
+        tags: ["Doctor — Examinations"],
+        summary: "Update examination notes/complaint (only while in draft/submitted state)",
+        security: [["sanctum" => []]],
+        parameters: [
+            new OA\Parameter(name: "id", in: "path", required: true, schema: new OA\Schema(type: "integer")),
+        ],
+        requestBody: new OA\RequestBody(
+            required: true,
+            content: new OA\JsonContent(
+                properties: [
+                    new OA\Property(property: "chief_complaint", type: "string", nullable: true),
+                    new OA\Property(property: "clinical_notes", type: "string", nullable: true),
+                    new OA\Property(property: "doctor_conclusion", type: "string", nullable: true),
+                    new OA\Property(property: "examined_at", type: "string", format: "date", nullable: true),
+                ]
+            )
+        ),
+        responses: [
+            new OA\Response(response: 200, description: "Examination updated", content: new OA\JsonContent(ref: "#/components/schemas/ExaminationObject")),
+            new OA\Response(response: 403, description: "Not authorized"),
+            new OA\Response(response: 422, description: "Cannot modify a concluded examination"),
+        ]
+    )]
     public function update(Request $request, Examination $examination): JsonResponse
     {
         $this->ensureOwnership($examination);
@@ -107,9 +217,24 @@ class ExaminationController extends Controller
         return response()->json($examination->fresh());
     }
 
-    /**
-     * Submit an examination (moves it from draft to submitted, ready for prediction).
-     */
+    // ============================================================
+    //  SUBMIT
+    // ============================================================
+
+    #[OA\Post(
+        path: "/doctor/examinations/{id}/submit",
+        tags: ["Doctor — Examinations"],
+        summary: "Submit an examination (moves it from draft to submitted, ready for prediction)",
+        security: [["sanctum" => []]],
+        parameters: [
+            new OA\Parameter(name: "id", in: "path", required: true, schema: new OA\Schema(type: "integer")),
+        ],
+        responses: [
+            new OA\Response(response: 200, description: "Examination submitted"),
+            new OA\Response(response: 403, description: "Not authorized"),
+            new OA\Response(response: 422, description: "Only draft examinations can be submitted"),
+        ]
+    )]
     public function submit(Examination $examination): JsonResponse
     {
         $this->ensureOwnership($examination);
@@ -123,9 +248,33 @@ class ExaminationController extends Controller
         return response()->json(['message' => 'Examination submitted successfully.', 'examination' => $examination]);
     }
 
-    /**
-     * Conclude an examination (doctor has reviewed the AI result and written their conclusion).
-     */
+    // ============================================================
+    //  CONCLUDE
+    // ============================================================
+
+    #[OA\Post(
+        path: "/doctor/examinations/{id}/conclude",
+        tags: ["Doctor — Examinations"],
+        summary: "Conclude an examination (doctor has reviewed the AI result and written their conclusion)",
+        security: [["sanctum" => []]],
+        parameters: [
+            new OA\Parameter(name: "id", in: "path", required: true, schema: new OA\Schema(type: "integer")),
+        ],
+        requestBody: new OA\RequestBody(
+            required: true,
+            content: new OA\JsonContent(
+                required: ["doctor_conclusion"],
+                properties: [
+                    new OA\Property(property: "doctor_conclusion", type: "string"),
+                ]
+            )
+        ),
+        responses: [
+            new OA\Response(response: 200, description: "Examination concluded"),
+            new OA\Response(response: 403, description: "Not authorized"),
+            new OA\Response(response: 422, description: "Can only be concluded after prediction"),
+        ]
+    )]
     public function conclude(Request $request, Examination $examination): JsonResponse
     {
         $this->ensureOwnership($examination);
@@ -146,9 +295,24 @@ class ExaminationController extends Controller
         return response()->json(['message' => 'Examination concluded.', 'examination' => $examination->fresh()]);
     }
 
-    /**
-     * Delete a draft examination.
-     */
+    // ============================================================
+    //  DESTROY
+    // ============================================================
+
+    #[OA\Delete(
+        path: "/doctor/examinations/{id}",
+        tags: ["Doctor — Examinations"],
+        summary: "Delete a draft examination",
+        security: [["sanctum" => []]],
+        parameters: [
+            new OA\Parameter(name: "id", in: "path", required: true, schema: new OA\Schema(type: "integer")),
+        ],
+        responses: [
+            new OA\Response(response: 200, description: "Examination deleted"),
+            new OA\Response(response: 403, description: "Not authorized"),
+            new OA\Response(response: 422, description: "Only draft examinations can be deleted"),
+        ]
+    )]
     public function destroy(Examination $examination): JsonResponse
     {
         $this->ensureOwnership($examination);

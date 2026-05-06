@@ -11,7 +11,37 @@ use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Http;
 use Illuminate\Support\Facades\Log;
+use OpenApi\Attributes as OA;
 
+#[OA\Schema(
+    schema: "PlanObject",
+    type: "object",
+    properties: [
+        new OA\Property(property: "id", type: "integer"),
+        new OA\Property(property: "name", type: "string"),
+        new OA\Property(property: "description", type: "string", nullable: true),
+        new OA\Property(property: "price", type: "number", format: "float"),
+        new OA\Property(property: "max_patients", type: "integer", nullable: true),
+        new OA\Property(property: "max_predictions_per_month", type: "integer", nullable: true),
+        new OA\Property(property: "is_active", type: "boolean"),
+    ]
+)]
+#[OA\Schema(
+    schema: "PaymentObject",
+    type: "object",
+    properties: [
+        new OA\Property(property: "id", type: "integer"),
+        new OA\Property(property: "organization_id", type: "integer"),
+        new OA\Property(property: "plan_id", type: "integer"),
+        new OA\Property(property: "amount", type: "number", format: "float"),
+        new OA\Property(property: "currency", type: "string"),
+        new OA\Property(property: "status", type: "string", enum: ["pending", "completed", "failed", "refunded"]),
+        new OA\Property(property: "chargily_checkout_id", type: "string", nullable: true),
+        new OA\Property(property: "checkout_url", type: "string", nullable: true),
+        new OA\Property(property: "duration_months", type: "integer", nullable: true),
+        new OA\Property(property: "created_at", type: "string", format: "date-time"),
+    ]
+)]
 class PaymentController extends Controller
 {
     private const CHARGILY_API = 'https://pay.chargily.net/api/v2';
@@ -21,9 +51,26 @@ class PaymentController extends Controller
         return auth()->user()->organization()->with('plan')->first();
     }
 
-    // ─────────────────────────────────────────────────────────────────────────
-    // GET /api/org/plans  — Public list of available plans
-    // ─────────────────────────────────────────────────────────────────────────
+    // ============================================================
+    //  PLANS
+    // ============================================================
+
+    #[OA\Get(
+        path: "/org-manager/plans",
+        tags: ["OrgManager — Billing"],
+        summary: "List of available subscription plans",
+        security: [["sanctum" => []]],
+        responses: [
+            new OA\Response(
+                response: 200,
+                description: "List of plans",
+                content: new OA\JsonContent(
+                    type: "array",
+                    items: new OA\Items(ref: "#/components/schemas/PlanObject")
+                )
+            )
+        ]
+    )]
     public function plans(): JsonResponse
     {
         $plans = Plan::orderBy('price')->get();
@@ -31,18 +78,42 @@ class PaymentController extends Controller
         return response()->json($plans);
     }
 
-    // ─────────────────────────────────────────────────────────────────────────
-    // POST /api/org/subscribe  — Initiate a Chargily checkout for a plan
-    //
-    // Body: { plan_id: int, duration_months: int (1|3|6|12) }
-    //
-    // Flow:
-    //   1. Validate plan & duration
-    //   2. Compute total amount (plan.price × months)
-    //   3. Call Chargily API → get checkout_url
-    //   4. Create a pending Payment record
-    //   5. Return checkout_url to frontend  →  frontend redirects user there
-    // ─────────────────────────────────────────────────────────────────────────
+    // ============================================================
+    //  SUBSCRIBE
+    // ============================================================
+
+    #[OA\Post(
+        path: "/org-manager/subscribe",
+        tags: ["OrgManager — Billing"],
+        summary: "Initiate a Chargily checkout for a plan",
+        description: "Creates a checkout session via Chargily API and returns the checkout URL.",
+        security: [["sanctum" => []]],
+        requestBody: new OA\RequestBody(
+            required: true,
+            content: new OA\JsonContent(
+                required: ["plan_id", "duration_months"],
+                properties: [
+                    new OA\Property(property: "plan_id", type: "integer"),
+                    new OA\Property(property: "duration_months", type: "integer", enum: [1, 3, 6, 12]),
+                ]
+            )
+        ),
+        responses: [
+            new OA\Response(
+                response: 201,
+                description: "Checkout created",
+                content: new OA\JsonContent(
+                    properties: [
+                        new OA\Property(property: "message", type: "string"),
+                        new OA\Property(property: "checkout_url", type: "string"),
+                        new OA\Property(property: "payment_id", type: "integer"),
+                    ]
+                )
+            ),
+            new OA\Response(response: 502, description: "Failed to initiate payment gateway"),
+            new OA\Response(response: 422, description: "Validation error"),
+        ]
+    )]
     public function subscribe(Request $request): JsonResponse
     {
         $user = auth()->user();
@@ -115,9 +186,29 @@ class PaymentController extends Controller
         ], 201);
     }
 
-    // ─────────────────────────────────────────────────────────────────────────
-    // GET /api/org/payments  — List payment history for this org
-    // ─────────────────────────────────────────────────────────────────────────
+    // ============================================================
+    //  HISTORY
+    // ============================================================
+
+    #[OA\Get(
+        path: "/org-manager/payments",
+        tags: ["OrgManager — Billing"],
+        summary: "List payment history for this organization",
+        security: [["sanctum" => []]],
+        responses: [
+            new OA\Response(
+                response: 200,
+                description: "Paginated list of payments",
+                content: new OA\JsonContent(
+                    properties: [
+                        new OA\Property(property: "data", type: "array", items: new OA\Items(ref: "#/components/schemas/PaymentObject")),
+                        new OA\Property(property: "current_page", type: "integer"),
+                        new OA\Property(property: "total", type: "integer"),
+                    ]
+                )
+            )
+        ]
+    )]
     public function history(): JsonResponse
     {
         $payments = Payment::where('organization_id', auth()->user()->organization_id)
@@ -128,9 +219,34 @@ class PaymentController extends Controller
         return response()->json($payments);
     }
 
-    // ─────────────────────────────────────────────────────────────────────────
-    // GET /api/org/subscription  — Current subscription status
-    // ─────────────────────────────────────────────────────────────────────────
+    // ============================================================
+    //  CURRENT SUBSCRIPTION
+    // ============================================================
+
+    #[OA\Get(
+        path: "/org-manager/subscription",
+        tags: ["OrgManager — Billing"],
+        summary: "Current subscription status",
+        security: [["sanctum" => []]],
+        responses: [
+            new OA\Response(
+                response: 200,
+                description: "Current subscription details",
+                content: new OA\JsonContent(
+                    properties: [
+                        new OA\Property(property: "organization", type: "object", properties: [
+                            new OA\Property(property: "id", type: "integer"),
+                            new OA\Property(property: "name", type: "string"),
+                            new OA\Property(property: "subscription_status", type: "string"),
+                            new OA\Property(property: "subscription_ends_at", type: "string", format: "date", nullable: true),
+                        ]),
+                        new OA\Property(property: "plan", ref: "#/components/schemas/PlanObject"),
+                        new OA\Property(property: "subscription", type: "object", nullable: true),
+                    ]
+                )
+            )
+        ]
+    )]
     public function currentSubscription(): JsonResponse
     {
         $org = auth()->user()->organization()->with('plan')->first();

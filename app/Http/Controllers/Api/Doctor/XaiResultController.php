@@ -6,6 +6,7 @@ use App\Http\Controllers\Controller;
 use App\Models\Prediction;
 use App\Models\XaiResult;
 use Illuminate\Http\JsonResponse;
+use OpenApi\Attributes as OA;
 
 class XaiResultController extends Controller
 {
@@ -14,10 +15,45 @@ class XaiResultController extends Controller
         return auth()->user();
     }
 
-    /**
-     * Get the XAI result for a given prediction.
-     * Returns SHAP values, heatmap path, and top contributing features.
-     */
+    // ============================================================
+    //  SHOW
+    // ============================================================
+
+    #[OA\Get(
+        path: "/doctor/predictions/{prediction_id}/xai",
+        tags: ["Doctor — Predictions"],
+        summary: "Get the XAI result for a given prediction",
+        description: "Returns SHAP values, heatmap path, and top contributing features.",
+        security: [["sanctum" => []]],
+        parameters: [
+            new OA\Parameter(name: "prediction_id", in: "path", required: true, schema: new OA\Schema(type: "integer")),
+        ],
+        responses: [
+            new OA\Response(
+                response: 200,
+                description: "XAI details",
+                content: new OA\JsonContent(
+                    properties: [
+                        new OA\Property(property: "prediction_id", type: "integer"),
+                        new OA\Property(property: "is_lum_a", type: "boolean"),
+                        new OA\Property(property: "confidence_lum_a", type: "number", format: "float"),
+                        new OA\Property(property: "confidence_non_lum_a", type: "number", format: "float"),
+                        new OA\Property(property: "xai", type: "object", properties: [
+                            new OA\Property(property: "heatmap_path", type: "string", nullable: true),
+                            new OA\Property(property: "heatmap_status", type: "string"),
+                            new OA\Property(property: "shap_plot_path", type: "string", nullable: true),
+                            new OA\Property(property: "shap_status", type: "string"),
+                            new OA\Property(property: "shap_values", type: "object", nullable: true),
+                            new OA\Property(property: "top_features", type: "object", nullable: true),
+                        ]),
+                    ]
+                )
+            ),
+            new OA\Response(response: 403, description: "Not authorized"),
+            new OA\Response(response: 404, description: "Not found / XAI not generated"),
+            new OA\Response(response: 422, description: "Prediction not completed"),
+        ]
+    )]
     public function show(Prediction $prediction): JsonResponse
     {
         abort_if(

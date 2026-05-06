@@ -10,6 +10,7 @@ use App\Models\Report;
 use App\Models\User;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Support\Facades\DB;
+use OpenApi\Attributes as OA;
 
 class InsightsController extends Controller
 {
@@ -18,9 +19,34 @@ class InsightsController extends Controller
         return auth()->user()->organization_id;
     }
 
-    /**
-     * KPI cards for the organization manager dashboard.
-     */
+    // ============================================================
+    //  KPIs
+    // ============================================================
+
+    #[OA\Get(
+        path: "/org-manager/insights/kpis",
+        tags: ["OrgManager — Insights"],
+        summary: "KPI cards for the organization manager dashboard",
+        security: [["sanctum" => []]],
+        responses: [
+            new OA\Response(
+                response: 200,
+                description: "OrgManager KPIs",
+                content: new OA\JsonContent(
+                    properties: [
+                        new OA\Property(property: "total_members", type: "integer"),
+                        new OA\Property(property: "active_doctors", type: "integer"),
+                        new OA\Property(property: "pending_approvals", type: "integer"),
+                        new OA\Property(property: "total_patients", type: "integer"),
+                        new OA\Property(property: "total_examinations", type: "integer"),
+                        new OA\Property(property: "total_predictions", type: "integer"),
+                        new OA\Property(property: "completed_predictions", type: "integer"),
+                        new OA\Property(property: "total_reports", type: "integer"),
+                    ]
+                )
+            )
+        ]
+    )]
     public function kpis(): JsonResponse
     {
         $orgId = $this->orgId();
@@ -37,9 +63,31 @@ class InsightsController extends Controller
         ]);
     }
 
-    /**
-     * Patient registrations per month (last 12 months) – line chart.
-     */
+    // ============================================================
+    //  Patient Growth
+    // ============================================================
+
+    #[OA\Get(
+        path: "/org-manager/insights/patient-growth",
+        tags: ["OrgManager — Insights"],
+        summary: "Patient registrations per month (last 12 months)",
+        security: [["sanctum" => []]],
+        responses: [
+            new OA\Response(
+                response: 200,
+                description: "Line chart data",
+                content: new OA\JsonContent(
+                    type: "array",
+                    items: new OA\Items(
+                        properties: [
+                            new OA\Property(property: "month", type: "string", example: "2025-06"),
+                            new OA\Property(property: "count", type: "integer", example: 45),
+                        ]
+                    )
+                )
+            )
+        ]
+    )]
     public function patientGrowth(): JsonResponse
     {
         $data = Patient::where('organization_id', $this->orgId())
@@ -55,9 +103,33 @@ class InsightsController extends Controller
         return response()->json($data);
     }
 
-    /**
-     * Predictions per month within this org – area chart.
-     */
+    // ============================================================
+    //  Predictions Over Time
+    // ============================================================
+
+    #[OA\Get(
+        path: "/org-manager/insights/predictions-over-time",
+        tags: ["OrgManager — Insights"],
+        summary: "Predictions per month within this org",
+        security: [["sanctum" => []]],
+        responses: [
+            new OA\Response(
+                response: 200,
+                description: "Area chart data",
+                content: new OA\JsonContent(
+                    type: "array",
+                    items: new OA\Items(
+                        properties: [
+                            new OA\Property(property: "month", type: "string", example: "2025-06"),
+                            new OA\Property(property: "total", type: "integer"),
+                            new OA\Property(property: "completed", type: "integer"),
+                            new OA\Property(property: "failed", type: "integer"),
+                        ]
+                    )
+                )
+            )
+        ]
+    )]
     public function predictionsOverTime(): JsonResponse
     {
         $data = Prediction::where('organization_id', $this->orgId())
@@ -75,9 +147,29 @@ class InsightsController extends Controller
         return response()->json($data);
     }
 
-    /**
-     * Luminal-A vs Non-Luminal-A within this org – donut chart.
-     */
+    // ============================================================
+    //  Prediction Results Distribution
+    // ============================================================
+
+    #[OA\Get(
+        path: "/org-manager/insights/prediction-results",
+        tags: ["OrgManager — Insights"],
+        summary: "Luminal-A vs Non-Luminal-A within this org",
+        security: [["sanctum" => []]],
+        responses: [
+            new OA\Response(
+                response: 200,
+                description: "Donut chart data",
+                content: new OA\JsonContent(
+                    properties: [
+                        new OA\Property(property: "total", type: "integer"),
+                        new OA\Property(property: "luminal_a", type: "integer"),
+                        new OA\Property(property: "non_luminal_a", type: "integer"),
+                    ]
+                )
+            )
+        ]
+    )]
     public function predictionResultsDistribution(): JsonResponse
     {
         $orgId = $this->orgId();
@@ -92,9 +184,31 @@ class InsightsController extends Controller
         ]);
     }
 
-    /**
-     * Patient age distribution within this org – histogram.
-     */
+    // ============================================================
+    //  Patient Age Distribution
+    // ============================================================
+
+    #[OA\Get(
+        path: "/org-manager/insights/patient-age-distribution",
+        tags: ["OrgManager — Insights"],
+        summary: "Patient age distribution within this org",
+        security: [["sanctum" => []]],
+        responses: [
+            new OA\Response(
+                response: 200,
+                description: "Histogram data",
+                content: new OA\JsonContent(
+                    type: "array",
+                    items: new OA\Items(
+                        properties: [
+                            new OA\Property(property: "range", type: "string", example: "40-49"),
+                            new OA\Property(property: "count", type: "integer"),
+                        ]
+                    )
+                )
+            )
+        ]
+    )]
     public function patientAgeDistribution(): JsonResponse
     {
         $orgId = $this->orgId();
@@ -118,9 +232,34 @@ class InsightsController extends Controller
         return response()->json($result);
     }
 
-    /**
-     * Receptor status distribution within this org – grouped bar chart.
-     */
+    // ============================================================
+    //  Receptor Status Distribution
+    // ============================================================
+
+    #[OA\Get(
+        path: "/org-manager/insights/receptor-status",
+        tags: ["OrgManager — Insights"],
+        summary: "Receptor status distribution within this org",
+        security: [["sanctum" => []]],
+        responses: [
+            new OA\Response(
+                response: 200,
+                description: "Grouped bar chart data",
+                content: new OA\JsonContent(
+                    properties: [
+                        new OA\Property(property: "er_positive", type: "integer"),
+                        new OA\Property(property: "er_negative", type: "integer"),
+                        new OA\Property(property: "er_missing", type: "integer"),
+                        new OA\Property(property: "pr_positive", type: "integer"),
+                        new OA\Property(property: "pr_negative", type: "integer"),
+                        new OA\Property(property: "pr_missing", type: "integer"),
+                        new OA\Property(property: "her2_positive", type: "integer"),
+                        new OA\Property(property: "her2_negative", type: "integer"),
+                    ]
+                )
+            )
+        ]
+    )]
     public function receptorStatusDistribution(): JsonResponse
     {
         $orgId = $this->orgId();
@@ -137,9 +276,36 @@ class InsightsController extends Controller
         ]);
     }
 
-    /**
-     * Doctor activity leaderboard within this org (by predictions made) – bar chart.
-     */
+    // ============================================================
+    //  Doctor Activity Leaderboard
+    // ============================================================
+
+    #[OA\Get(
+        path: "/org-manager/insights/doctor-leaderboard",
+        tags: ["OrgManager — Insights"],
+        summary: "Doctor activity leaderboard within this org",
+        security: [["sanctum" => []]],
+        responses: [
+            new OA\Response(
+                response: 200,
+                description: "Bar chart data",
+                content: new OA\JsonContent(
+                    type: "array",
+                    items: new OA\Items(
+                        properties: [
+                            new OA\Property(property: "doctor_id", type: "integer"),
+                            new OA\Property(property: "examinations_count", type: "integer"),
+                            new OA\Property(property: "doctor", type: "object", properties: [
+                                new OA\Property(property: "id", type: "integer"),
+                                new OA\Property(property: "name", type: "string"),
+                                new OA\Property(property: "email", type: "string"),
+                            ]),
+                        ]
+                    )
+                )
+            )
+        ]
+    )]
     public function doctorActivityLeaderboard(): JsonResponse
     {
         $orgId = $this->orgId();
@@ -154,9 +320,40 @@ class InsightsController extends Controller
         return response()->json($data);
     }
 
-    /**
-     * AI model performance – accuracy over rounds (read-only view for org manager).
-     */
+    // ============================================================
+    //  Model Performance
+    // ============================================================
+
+    #[OA\Get(
+        path: "/org-manager/insights/model-performance",
+        tags: ["OrgManager — Insights"],
+        summary: "AI model performance – accuracy over rounds",
+        security: [["sanctum" => []]],
+        responses: [
+            new OA\Response(
+                response: 200,
+                description: "Read-only FL round view",
+                content: new OA\JsonContent(
+                    type: "array",
+                    items: new OA\Items(
+                        properties: [
+                            new OA\Property(property: "id", type: "integer"),
+                            new OA\Property(property: "ai_model_id", type: "integer"),
+                            new OA\Property(property: "round_number", type: "integer"),
+                            new OA\Property(property: "global_accuracy", type: "number", format: "float"),
+                            new OA\Property(property: "status", type: "string"),
+                            new OA\Property(property: "started_at", type: "string", format: "date-time"),
+                            new OA\Property(property: "ai_model", type: "object", properties: [
+                                new OA\Property(property: "id", type: "integer"),
+                                new OA\Property(property: "name", type: "string"),
+                                new OA\Property(property: "version", type: "string"),
+                            ]),
+                        ]
+                    )
+                )
+            )
+        ]
+    )]
     public function modelPerformance(): JsonResponse
     {
         $data = \App\Models\FlRound::with('aiModel:id,name,version')

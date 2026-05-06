@@ -12,7 +12,27 @@ use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Http;
 use Illuminate\Support\Str;
+use OpenApi\Attributes as OA;
 
+#[OA\Schema(
+    schema: "PredictionObject",
+    type: "object",
+    properties: [
+        new OA\Property(property: "id", type: "integer"),
+        new OA\Property(property: "examination_id", type: "integer"),
+        new OA\Property(property: "patient_id", type: "integer"),
+        new OA\Property(property: "ai_model_id", type: "integer"),
+        new OA\Property(property: "wsi_upload_id", type: "integer", nullable: true),
+        new OA\Property(property: "status", type: "string", enum: ["pending", "processing", "completed", "failed"]),
+        new OA\Property(property: "is_lum_a", type: "boolean", nullable: true),
+        new OA\Property(property: "confidence_lum_a", type: "number", format: "float", nullable: true),
+        new OA\Property(property: "confidence_non_lum_a", type: "number", format: "float", nullable: true),
+        new OA\Property(property: "failure_reason", type: "string", nullable: true),
+        new OA\Property(property: "job_id", type: "string"),
+        new OA\Property(property: "completed_at", type: "string", format: "date-time", nullable: true),
+        new OA\Property(property: "created_at", type: "string", format: "date-time"),
+    ]
+)]
 class PredictionController extends Controller
 {
     private function doctor()
@@ -20,9 +40,34 @@ class PredictionController extends Controller
         return auth()->user();
     }
 
-    /**
-     * List predictions made by this doctor (via their examinations).
-     */
+    // ============================================================
+    //  INDEX
+    // ============================================================
+
+    #[OA\Get(
+        path: "/doctor/predictions",
+        tags: ["Doctor — Predictions"],
+        summary: "List predictions made by this doctor (via their examinations)",
+        security: [["sanctum" => []]],
+        parameters: [
+            new OA\Parameter(name: "status", in: "query", required: false, schema: new OA\Schema(type: "string", enum: ["pending", "processing", "completed", "failed"])),
+            new OA\Parameter(name: "examination_id", in: "query", required: false, schema: new OA\Schema(type: "integer")),
+            new OA\Parameter(name: "patient_id", in: "query", required: false, schema: new OA\Schema(type: "integer")),
+        ],
+        responses: [
+            new OA\Response(
+                response: 200,
+                description: "Paginated list of predictions",
+                content: new OA\JsonContent(
+                    properties: [
+                        new OA\Property(property: "data", type: "array", items: new OA\Items(ref: "#/components/schemas/PredictionObject")),
+                        new OA\Property(property: "current_page", type: "integer"),
+                        new OA\Property(property: "total", type: "integer"),
+                    ]
+                )
+            )
+        ]
+    )]
     public function index(Request $request): JsonResponse
     {
         $request->validate([
@@ -48,9 +93,28 @@ class PredictionController extends Controller
         return response()->json($query->orderByDesc('created_at')->paginate(15));
     }
 
-    /**
-     * Show a single prediction with XAI results.
-     */
+    // ============================================================
+    //  SHOW
+    // ============================================================
+
+    #[OA\Get(
+        path: "/doctor/predictions/{id}",
+        tags: ["Doctor — Predictions"],
+        summary: "Show a single prediction with XAI results",
+        security: [["sanctum" => []]],
+        parameters: [
+            new OA\Parameter(name: "id", in: "path", required: true, schema: new OA\Schema(type: "integer")),
+        ],
+        responses: [
+            new OA\Response(
+                response: 200,
+                description: "Prediction details",
+                content: new OA\JsonContent(ref: "#/components/schemas/PredictionObject")
+            ),
+            new OA\Response(response: 403, description: "Not authorized"),
+            new OA\Response(response: 404, description: "Not found"),
+        ]
+    )]
     public function show(Prediction $prediction): JsonResponse
     {
         $this->ensureOwnership($prediction);
@@ -66,10 +130,33 @@ class PredictionController extends Controller
         return response()->json($prediction);
     }
 
-    /**
-     * Dispatch an AI prediction for an examination.
-     * This is the core action: it packages clinical data + WSI, calls FastAPI, and stores the result.
-     */
+    // ============================================================
+    //  PREDICT (DISPATCH)
+    // ============================================================
+
+    #[OA\Post(
+        path: "/doctor/predictions",
+        tags: ["Doctor — Predictions"],
+        summary: "Dispatch an AI prediction for an examination",
+        description: "Packages clinical data + WSI, calls FastAPI, and stores the result as pending.",
+        security: [["sanctum" => []]],
+        requestBody: new OA\RequestBody(
+            required: true,
+            content: new OA\JsonContent(
+                required: ["examination_id"],
+                properties: [
+                    new OA\Property(property: "examination_id", type: "integer"),
+                    new OA\Property(property: "wsi_upload_id", type: "integer", nullable: true),
+                ]
+            )
+        ),
+        responses: [
+            new OA\Response(response: 202, description: "Prediction dispatched"),
+            new OA\Response(response: 403, description: "Not authorized / Organization mismatch"),
+            new OA\Response(response: 422, description: "Examination not submitted / Prediction already exists"),
+            new OA\Response(response: 503, description: "No active AI model available"),
+        ]
+    )]
     public function predict(Request $request): JsonResponse
     {
         $doctor = $this->doctor();
@@ -143,9 +230,24 @@ class PredictionController extends Controller
         ], 202);
     }
 
-    /**
-     * Retry a failed prediction.
-     */
+    // ============================================================
+    //  RETRY
+    // ============================================================
+
+    #[OA\Post(
+        path: "/doctor/predictions/{id}/retry",
+        tags: ["Doctor — Predictions"],
+        summary: "Retry a failed prediction",
+        security: [["sanctum" => []]],
+        parameters: [
+            new OA\Parameter(name: "id", in: "path", required: true, schema: new OA\Schema(type: "integer")),
+        ],
+        responses: [
+            new OA\Response(response: 200, description: "Prediction retried"),
+            new OA\Response(response: 403, description: "Not authorized"),
+            new OA\Response(response: 422, description: "Only failed predictions can be retried"),
+        ]
+    )]
     public function retry(Prediction $prediction): JsonResponse
     {
         $this->ensureOwnership($prediction);
@@ -168,9 +270,38 @@ class PredictionController extends Controller
         ]);
     }
 
-    /**
-     * Poll the status of a prediction job (for frontend real-time updates).
-     */
+    // ============================================================
+    //  STATUS
+    // ============================================================
+
+    #[OA\Get(
+        path: "/doctor/predictions/{id}/status",
+        tags: ["Doctor — Predictions"],
+        summary: "Poll the status of a prediction job",
+        security: [["sanctum" => []]],
+        parameters: [
+            new OA\Parameter(name: "id", in: "path", required: true, schema: new OA\Schema(type: "integer")),
+        ],
+        responses: [
+            new OA\Response(
+                response: 200,
+                description: "Prediction status details",
+                content: new OA\JsonContent(
+                    properties: [
+                        new OA\Property(property: "id", type: "integer"),
+                        new OA\Property(property: "status", type: "string"),
+                        new OA\Property(property: "is_lum_a", type: "boolean", nullable: true),
+                        new OA\Property(property: "confidence_lum_a", type: "number", format: "float", nullable: true),
+                        new OA\Property(property: "confidence_non_lum_a", type: "number", format: "float", nullable: true),
+                        new OA\Property(property: "failure_reason", type: "string", nullable: true),
+                        new OA\Property(property: "completed_at", type: "string", format: "date-time", nullable: true),
+                    ]
+                )
+            ),
+            new OA\Response(response: 403, description: "Not authorized"),
+            new OA\Response(response: 404, description: "Not found"),
+        ]
+    )]
     public function status(Prediction $prediction): JsonResponse
     {
         $this->ensureOwnership($prediction);

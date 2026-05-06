@@ -9,6 +9,7 @@ use App\Models\Prediction;
 use App\Models\Report;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Support\Facades\DB;
+use OpenApi\Attributes as OA;
 
 class InsightsController extends Controller
 {
@@ -17,9 +18,34 @@ class InsightsController extends Controller
         return auth()->user();
     }
 
-    /**
-     * KPI cards for the doctor's personal dashboard.
-     */
+    // ============================================================
+    //  KPIs
+    // ============================================================
+
+    #[OA\Get(
+        path: "/doctor/insights/kpis",
+        tags: ["Doctor — Insights"],
+        summary: "KPI cards for the doctor's personal dashboard",
+        security: [["sanctum" => []]],
+        responses: [
+            new OA\Response(
+                response: 200,
+                description: "Doctor KPIs",
+                content: new OA\JsonContent(
+                    properties: [
+                        new OA\Property(property: "my_patients", type: "integer"),
+                        new OA\Property(property: "my_examinations", type: "integer"),
+                        new OA\Property(property: "pending_examinations", type: "integer"),
+                        new OA\Property(property: "my_predictions", type: "integer"),
+                        new OA\Property(property: "completed_predictions", type: "integer"),
+                        new OA\Property(property: "failed_predictions", type: "integer"),
+                        new OA\Property(property: "my_reports", type: "integer"),
+                        new OA\Property(property: "finalized_reports", type: "integer"),
+                    ]
+                )
+            )
+        ]
+    )]
     public function kpis(): JsonResponse
     {
         $doctorId = $this->doctor()->id;
@@ -43,9 +69,31 @@ class InsightsController extends Controller
         ]);
     }
 
-    /**
-     * My examinations per month (last 12 months) – line chart.
-     */
+    // ============================================================
+    //  Examinations Over Time
+    // ============================================================
+
+    #[OA\Get(
+        path: "/doctor/insights/examinations-over-time",
+        tags: ["Doctor — Insights"],
+        summary: "My examinations per month (last 12 months)",
+        security: [["sanctum" => []]],
+        responses: [
+            new OA\Response(
+                response: 200,
+                description: "Line chart data",
+                content: new OA\JsonContent(
+                    type: "array",
+                    items: new OA\Items(
+                        properties: [
+                            new OA\Property(property: "month", type: "string", example: "2025-06"),
+                            new OA\Property(property: "count", type: "integer", example: 12),
+                        ]
+                    )
+                )
+            )
+        ]
+    )]
     public function examinationsOverTime(): JsonResponse
     {
         $data = Examination::where('doctor_id', $this->doctor()->id)
@@ -61,9 +109,29 @@ class InsightsController extends Controller
         return response()->json($data);
     }
 
-    /**
-     * My prediction results distribution (Lum-A vs Non-Lum-A) – donut chart.
-     */
+    // ============================================================
+    //  Prediction Results Distribution
+    // ============================================================
+
+    #[OA\Get(
+        path: "/doctor/insights/prediction-results",
+        tags: ["Doctor — Insights"],
+        summary: "My prediction results distribution (Lum-A vs Non-Lum-A)",
+        security: [["sanctum" => []]],
+        responses: [
+            new OA\Response(
+                response: 200,
+                description: "Donut chart data",
+                content: new OA\JsonContent(
+                    properties: [
+                        new OA\Property(property: "total", type: "integer"),
+                        new OA\Property(property: "luminal_a", type: "integer"),
+                        new OA\Property(property: "non_luminal_a", type: "integer"),
+                    ]
+                )
+            )
+        ]
+    )]
     public function myPredictionResultsDistribution(): JsonResponse
     {
         $doctorId = $this->doctor()->id;
@@ -81,9 +149,28 @@ class InsightsController extends Controller
         ]);
     }
 
-    /**
-     * Average confidence scores of my predictions.
-     */
+    // ============================================================
+    //  Average Confidence
+    // ============================================================
+
+    #[OA\Get(
+        path: "/doctor/insights/average-confidence",
+        tags: ["Doctor — Insights"],
+        summary: "Average confidence scores of my predictions",
+        security: [["sanctum" => []]],
+        responses: [
+            new OA\Response(
+                response: 200,
+                description: "Average confidence metrics",
+                content: new OA\JsonContent(
+                    properties: [
+                        new OA\Property(property: "avg_confidence_lum_a", type: "number", format: "float"),
+                        new OA\Property(property: "avg_confidence_non_lum_a", type: "number", format: "float"),
+                    ]
+                )
+            )
+        ]
+    )]
     public function averageConfidence(): JsonResponse
     {
         $doctorId = $this->doctor()->id;
@@ -102,9 +189,31 @@ class InsightsController extends Controller
         ]);
     }
 
-    /**
-     * Patient age distribution for my patients – histogram.
-     */
+    // ============================================================
+    //  Patient Age Distribution
+    // ============================================================
+
+    #[OA\Get(
+        path: "/doctor/insights/patient-age-distribution",
+        tags: ["Doctor — Insights"],
+        summary: "Patient age distribution for my patients",
+        security: [["sanctum" => []]],
+        responses: [
+            new OA\Response(
+                response: 200,
+                description: "Histogram data",
+                content: new OA\JsonContent(
+                    type: "array",
+                    items: new OA\Items(
+                        properties: [
+                            new OA\Property(property: "range", type: "string", example: "40-49"),
+                            new OA\Property(property: "count", type: "integer", example: 10),
+                        ]
+                    )
+                )
+            )
+        ]
+    )]
     public function patientAgeDistribution(): JsonResponse
     {
         $orgId = $this->doctor()->organization_id;
@@ -128,9 +237,36 @@ class InsightsController extends Controller
         return response()->json($result);
     }
 
-    /**
-     * Recent activity feed – last 10 examinations and their prediction status.
-     */
+    // ============================================================
+    //  Recent Activity
+    // ============================================================
+
+    #[OA\Get(
+        path: "/doctor/insights/recent-activity",
+        tags: ["Doctor — Insights"],
+        summary: "Recent activity feed – last 10 examinations",
+        security: [["sanctum" => []]],
+        responses: [
+            new OA\Response(
+                response: 200,
+                description: "List of recent examinations",
+                content: new OA\JsonContent(
+                    type: "array",
+                    items: new OA\Items(
+                        properties: [
+                            new OA\Property(property: "id", type: "integer"),
+                            new OA\Property(property: "status", type: "string"),
+                            new OA\Property(property: "examined_at", type: "string", format: "date-time"),
+                            new OA\Property(property: "patient", type: "object", properties: [
+                                new OA\Property(property: "id", type: "integer"),
+                                new OA\Property(property: "patient_identifier", type: "string"),
+                            ]),
+                        ]
+                    )
+                )
+            )
+        ]
+    )]
     public function recentActivity(): JsonResponse
     {
         $recent = Examination::where('doctor_id', $this->doctor()->id)

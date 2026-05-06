@@ -3,12 +3,12 @@
 namespace App\Http\Controllers\Api\Internal;
 
 use App\Http\Controllers\Controller;
-use App\Models\Examination;
 use App\Models\Prediction;
 use App\Models\XaiResult;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Log;
+use OpenApi\Attributes as OA;
 
 /**
  * Called by the FastAPI microservice after a prediction job is completed.
@@ -16,28 +16,42 @@ use Illuminate\Support\Facades\Log;
  */
 class PredictionWebhookController extends Controller
 {
-    /**
-     * Receive the prediction result from FastAPI and persist it.
-     *
-     * FastAPI should POST to: POST /internal/predictions/{job_id}/result
-     *
-     * Expected payload:
-     * {
-     *   "status": "completed" | "failed",
-     *   "is_lum_a": true | false,
-     *   "confidence_lum_a": 0.91,
-     *   "confidence_non_lum_a": 0.09,
-     *   "failure_reason": null | "string",
-     *   "xai": {
-     *     "heatmap_path": "storage/...",
-     *     "heatmap_status": "ready" | "pending" | "failed",
-     *     "shap_plot_path": "storage/...",
-     *     "shap_status": "ready" | "pending" | "failed",
-     *     "shap_values": { ... },
-     *     "top_features": [ ... ]
-     *   }
-     * }
-     */
+    #[OA\Post(
+        path: "/internal/predictions/{job_id}/result",
+        tags: ["Webhooks"],
+        summary: "Receive prediction results from FastAPI",
+        description: "Internal webhook for the FastAPI service to push prediction and XAI results back. Protected by a shared secret.",
+        parameters: [
+            new OA\Parameter(name: "job_id", in: "path", required: true, schema: new OA\Schema(type: "string")),
+            new OA\Parameter(name: "X-Internal-Secret", in: "header", required: true, schema: new OA\Schema(type: "string")),
+        ],
+        requestBody: new OA\RequestBody(
+            required: true,
+            content: new OA\JsonContent(
+                required: ["status"],
+                properties: [
+                    new OA\Property(property: "status", type: "string", enum: ["completed", "failed"]),
+                    new OA\Property(property: "is_lum_a", type: "boolean", nullable: true),
+                    new OA\Property(property: "confidence_lum_a", type: "number", format: "float", nullable: true),
+                    new OA\Property(property: "confidence_non_lum_a", type: "number", format: "float", nullable: true),
+                    new OA\Property(property: "failure_reason", type: "string", nullable: true),
+                    new OA\Property(property: "xai", type: "object", properties: [
+                        new OA\Property(property: "heatmap_path", type: "string", nullable: true),
+                        new OA\Property(property: "heatmap_status", type: "string", enum: ["pending", "ready", "failed"]),
+                        new OA\Property(property: "shap_plot_path", type: "string", nullable: true),
+                        new OA\Property(property: "shap_status", type: "string", enum: ["pending", "ready", "failed"]),
+                        new OA\Property(property: "shap_values", type: "object", nullable: true),
+                        new OA\Property(property: "top_features", type: "array", items: new OA\Items(type: "string"), nullable: true),
+                    ], nullable: true),
+                ]
+            )
+        ),
+        responses: [
+            new OA\Response(response: 200, description: "Result recorded successfully"),
+            new OA\Response(response: 401, description: "Unauthorized (invalid secret)"),
+            new OA\Response(response: 404, description: "Prediction not found"),
+        ]
+    )]
     public function handle(Request $request, string $jobId): JsonResponse
     {
         // Validate shared secret

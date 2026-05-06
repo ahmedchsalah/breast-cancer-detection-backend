@@ -8,7 +8,24 @@ use App\Models\WsiUpload;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Storage;
+use OpenApi\Attributes as OA;
 
+#[OA\Schema(
+    schema: "WsiUploadObject",
+    type: "object",
+    properties: [
+        new OA\Property(property: "id", type: "integer"),
+        new OA\Property(property: "patient_id", type: "integer"),
+        new OA\Property(property: "uploaded_by", type: "integer"),
+        new OA\Property(property: "organization_id", type: "integer"),
+        new OA\Property(property: "file_path", type: "string"),
+        new OA\Property(property: "original_name", type: "string"),
+        new OA\Property(property: "file_size_bytes", type: "integer"),
+        new OA\Property(property: "mime_type", type: "string"),
+        new OA\Property(property: "status", type: "string", enum: ["pending", "processing", "ready", "failed"]),
+        new OA\Property(property: "created_at", type: "string", format: "date-time"),
+    ]
+)]
 class WsiUploadController extends Controller
 {
     private function doctor()
@@ -16,9 +33,33 @@ class WsiUploadController extends Controller
         return auth()->user();
     }
 
-    /**
-     * List WSI uploads for the doctor's organization.
-     */
+    // ============================================================
+    //  INDEX
+    // ============================================================
+
+    #[OA\Get(
+        path: "/doctor/wsi-uploads",
+        tags: ["Doctor — WSI"],
+        summary: "List WSI uploads for the doctor's organization",
+        security: [["sanctum" => []]],
+        parameters: [
+            new OA\Parameter(name: "patient_id", in: "query", required: false, schema: new OA\Schema(type: "integer")),
+            new OA\Parameter(name: "status", in: "query", required: false, schema: new OA\Schema(type: "string", enum: ["pending", "processing", "ready", "failed"])),
+        ],
+        responses: [
+            new OA\Response(
+                response: 200,
+                description: "Paginated list of WSI uploads",
+                content: new OA\JsonContent(
+                    properties: [
+                        new OA\Property(property: "data", type: "array", items: new OA\Items(ref: "#/components/schemas/WsiUploadObject")),
+                        new OA\Property(property: "current_page", type: "integer"),
+                        new OA\Property(property: "total", type: "integer"),
+                    ]
+                )
+            )
+        ]
+    )]
     public function index(Request $request): JsonResponse
     {
         $request->validate([
@@ -39,9 +80,28 @@ class WsiUploadController extends Controller
         return response()->json($query->orderByDesc('created_at')->paginate(15));
     }
 
-    /**
-     * Show a single WSI upload record.
-     */
+    // ============================================================
+    //  SHOW
+    // ============================================================
+
+    #[OA\Get(
+        path: "/doctor/wsi-uploads/{id}",
+        tags: ["Doctor — WSI"],
+        summary: "Show a single WSI upload record",
+        security: [["sanctum" => []]],
+        parameters: [
+            new OA\Parameter(name: "id", in: "path", required: true, schema: new OA\Schema(type: "integer")),
+        ],
+        responses: [
+            new OA\Response(
+                response: 200,
+                description: "WSI details",
+                content: new OA\JsonContent(ref: "#/components/schemas/WsiUploadObject")
+            ),
+            new OA\Response(response: 403, description: "Not authorized"),
+            new OA\Response(response: 404, description: "Not found"),
+        ]
+    )]
     public function show(WsiUpload $wsiUpload): JsonResponse
     {
         $this->ensureSameOrg($wsiUpload);
@@ -49,9 +109,34 @@ class WsiUploadController extends Controller
         return response()->json($wsiUpload->load('patient:id,patient_identifier', 'uploader:id,name'));
     }
 
-    /**
-     * Upload a WSI file for a patient.
-     */
+    // ============================================================
+    //  STORE
+    // ============================================================
+
+    #[OA\Post(
+        path: "/doctor/wsi-uploads",
+        tags: ["Doctor — WSI"],
+        summary: "Upload a WSI file for a patient",
+        security: [["sanctum" => []]],
+        requestBody: new OA\RequestBody(
+            required: true,
+            content: new OA\MediaType(
+                mediaType: "multipart/form-data",
+                schema: new OA\Schema(
+                    required: ["patient_id", "file"],
+                    properties: [
+                        new OA\Property(property: "patient_id", type: "integer"),
+                        new OA\Property(property: "file", type: "string", format: "binary"),
+                    ]
+                )
+            )
+        ),
+        responses: [
+            new OA\Response(response: 201, description: "WSI uploaded", content: new OA\JsonContent(ref: "#/components/schemas/WsiUploadObject")),
+            new OA\Response(response: 403, description: "Patient mismatch"),
+            new OA\Response(response: 422, description: "Validation error"),
+        ]
+    )]
     public function store(Request $request): JsonResponse
     {
         $doctor = $this->doctor();
@@ -81,9 +166,24 @@ class WsiUploadController extends Controller
         return response()->json($upload, 201);
     }
 
-    /**
-     * Delete a WSI upload (only if no prediction has been made from it).
-     */
+    // ============================================================
+    //  DESTROY
+    // ============================================================
+
+    #[OA\Delete(
+        path: "/doctor/wsi-uploads/{id}",
+        tags: ["Doctor — WSI"],
+        summary: "Delete a WSI upload (only if no prediction has been made from it)",
+        security: [["sanctum" => []]],
+        parameters: [
+            new OA\Parameter(name: "id", in: "path", required: true, schema: new OA\Schema(type: "integer")),
+        ],
+        responses: [
+            new OA\Response(response: 200, description: "WSI deleted"),
+            new OA\Response(response: 403, description: "Not authorized"),
+            new OA\Response(response: 422, description: "Cannot delete WSI with associated prediction"),
+        ]
+    )]
     public function destroy(WsiUpload $wsiUpload): JsonResponse
     {
         $this->ensureSameOrg($wsiUpload);

@@ -10,18 +10,29 @@ use Carbon\Carbon;
 use Illuminate\Http\Request;
 use Illuminate\Http\Response;
 use Illuminate\Support\Facades\Log;
+use OpenApi\Attributes as OA;
 
 /**
  * Receives Chargily Pay webhook callbacks.
  * This route is PUBLIC (no Sanctum) — security is done via HMAC signature.
- *
- * Events handled:
- *   checkout.paid     → activate subscription, mark payment completed
- *   checkout.failed   → mark payment failed
- *   checkout.canceled → mark payment failed (user abandoned checkout)
  */
 class ChargilyWebhookController extends Controller
 {
+    #[OA\Post(
+        path: "/payment/webhook",
+        tags: ["Webhooks"],
+        summary: "Handle Chargily Pay Webhook",
+        description: "Public endpoint for Chargily to push payment status updates. Secured by HMAC signature.",
+        requestBody: new OA\RequestBody(
+            required: true,
+            content: new OA\JsonContent()
+        ),
+        responses: [
+            new OA\Response(response: 200, description: "Webhook received and processed"),
+            new OA\Response(response: 400, description: "Missing signature or malformed payload"),
+            new OA\Response(response: 403, description: "Invalid HMAC signature"),
+        ]
+    )]
     public function handle(Request $request): Response
     {
         // ── 1. Verify HMAC signature ────────────────────────────────────────

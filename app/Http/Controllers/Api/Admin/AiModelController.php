@@ -6,13 +6,48 @@ use App\Http\Controllers\Controller;
 use App\Models\AiModel;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
-use Illuminate\Support\Facades\Storage;
+use OpenApi\Attributes as OA;
+
+// ============================================================
+//  Shared Schemas — Admin
+// ============================================================
+
+#[OA\Schema(
+    schema: "AiModelObject",
+    type: "object",
+    properties: [
+        new OA\Property(property: "id",          type: "integer", example: 1),
+        new OA\Property(property: "name",        type: "string",  example: "BrCa-LumA-v3"),
+        new OA\Property(property: "version",     type: "string",  example: "3.0.1"),
+        new OA\Property(property: "file_path",   type: "string",  example: "models/brca_v3.pt"),
+        new OA\Property(property: "is_active",   type: "boolean", example: true),
+        new OA\Property(property: "metadata",    type: "object",  nullable: true),
+        new OA\Property(property: "created_at",  type: "string",  format: "date-time"),
+    ]
+)]
 
 class AiModelController extends Controller
 {
-    /**
-     * List all AI models.
-     */
+    // ============================================================
+    //  INDEX
+    // ============================================================
+
+    #[OA\Get(
+        path: "/admin/ai-models",
+        tags: ["Admin — AI Models"],
+        summary: "List all AI models",
+        security: [["sanctum" => []]],
+        responses: [
+            new OA\Response(
+                response: 200,
+                description: "List of models",
+                content: new OA\JsonContent(
+                    type: "array",
+                    items: new OA\Items(ref: "#/components/schemas/AiModelObject")
+                )
+            ),
+        ]
+    )]
     public function index(): JsonResponse
     {
         $models = AiModel::withCount('predictions', 'flRounds')
@@ -22,9 +57,23 @@ class AiModelController extends Controller
         return response()->json($models);
     }
 
-    /**
-     * Show a single model with its FL round history.
-     */
+    // ============================================================
+    //  SHOW
+    // ============================================================
+
+    #[OA\Get(
+        path: "/admin/ai-models/{id}",
+        tags: ["Admin — AI Models"],
+        summary: "Show a single AI model with FL round history",
+        security: [["sanctum" => []]],
+        parameters: [
+            new OA\Parameter(name: "id", in: "path", required: true, schema: new OA\Schema(type: "integer")),
+        ],
+        responses: [
+            new OA\Response(response: 200, description: "Model details", content: new OA\JsonContent(ref: "#/components/schemas/AiModelObject")),
+            new OA\Response(response: 404, description: "Not found"),
+        ]
+    )]
     public function show(AiModel $aiModel): JsonResponse
     {
         $aiModel->load(['flRounds' => fn($q) => $q->orderBy('round_number')])
@@ -33,15 +82,39 @@ class AiModelController extends Controller
         return response()->json($aiModel);
     }
 
-    /**
-     * Register a new AI model record.
-     */
+    // ============================================================
+    //  STORE
+    // ============================================================
+
+    #[OA\Post(
+        path: "/admin/ai-models",
+        tags: ["Admin — AI Models"],
+        summary: "Register a new AI model record",
+        security: [["sanctum" => []]],
+        requestBody: new OA\RequestBody(
+            required: true,
+            content: new OA\JsonContent(
+                required: ["name", "version", "file_path"],
+                properties: [
+                    new OA\Property(property: "name",      type: "string",  example: "BrCa-LumA-v3"),
+                    new OA\Property(property: "version",   type: "string",  example: "3.0.1"),
+                    new OA\Property(property: "file_path", type: "string",  example: "models/brca_v3.pt"),
+                    new OA\Property(property: "metadata",  type: "object",  nullable: true),
+                    new OA\Property(property: "is_active", type: "boolean", example: false),
+                ]
+            )
+        ),
+        responses: [
+            new OA\Response(response: 201, description: "Model created", content: new OA\JsonContent(ref: "#/components/schemas/AiModelObject")),
+            new OA\Response(response: 422, description: "Validation error", content: new OA\JsonContent(ref: "#/components/schemas/ValidationError")),
+        ]
+    )]
     public function store(Request $request): JsonResponse
     {
         $validated = $request->validate([
             'name'      => 'required|string|max:100',
             'version'   => 'required|string|max:30',
-            'file_path' => 'required|string|max:500', // Path where model file is stored
+            'file_path' => 'required|string|max:500',
             'metadata'  => 'nullable|array',
             'is_active' => 'nullable|boolean',
         ]);
@@ -51,9 +124,34 @@ class AiModelController extends Controller
         return response()->json($model, 201);
     }
 
-    /**
-     * Update model metadata.
-     */
+    // ============================================================
+    //  UPDATE
+    // ============================================================
+
+    #[OA\Put(
+        path: "/admin/ai-models/{id}",
+        tags: ["Admin — AI Models"],
+        summary: "Update model metadata",
+        security: [["sanctum" => []]],
+        parameters: [
+            new OA\Parameter(name: "id", in: "path", required: true, schema: new OA\Schema(type: "integer")),
+        ],
+        requestBody: new OA\RequestBody(
+            content: new OA\JsonContent(
+                properties: [
+                    new OA\Property(property: "name",      type: "string"),
+                    new OA\Property(property: "version",   type: "string"),
+                    new OA\Property(property: "file_path", type: "string"),
+                    new OA\Property(property: "metadata",  type: "object", nullable: true),
+                    new OA\Property(property: "is_active", type: "boolean"),
+                ]
+            )
+        ),
+        responses: [
+            new OA\Response(response: 200, description: "Updated model", content: new OA\JsonContent(ref: "#/components/schemas/AiModelObject")),
+            new OA\Response(response: 404, description: "Not found"),
+        ]
+    )]
     public function update(Request $request, AiModel $aiModel): JsonResponse
     {
         $validated = $request->validate([
@@ -69,9 +167,23 @@ class AiModelController extends Controller
         return response()->json($aiModel->fresh());
     }
 
-    /**
-     * Delete a model. Prevents deletion if it has completed predictions.
-     */
+    // ============================================================
+    //  DESTROY
+    // ============================================================
+
+    #[OA\Delete(
+        path: "/admin/ai-models/{id}",
+        tags: ["Admin — AI Models"],
+        summary: "Delete a model (blocked if it has completed predictions)",
+        security: [["sanctum" => []]],
+        parameters: [
+            new OA\Parameter(name: "id", in: "path", required: true, schema: new OA\Schema(type: "integer")),
+        ],
+        responses: [
+            new OA\Response(response: 200, description: "Deleted"),
+            new OA\Response(response: 422, description: "Cannot delete — has completed predictions"),
+        ]
+    )]
     public function destroy(AiModel $aiModel): JsonResponse
     {
         if ($aiModel->predictions()->where('status', 'completed')->exists()) {
@@ -85,21 +197,46 @@ class AiModelController extends Controller
         return response()->json(['message' => 'AI model deleted.']);
     }
 
-    /**
-     * Activate a model (only one active model at a time is recommended).
-     */
+    // ============================================================
+    //  ACTIVATE
+    // ============================================================
+
+    #[OA\Post(
+        path: "/admin/ai-models/{id}/activate",
+        tags: ["Admin — AI Models"],
+        summary: "Activate a model and deactivate all others",
+        security: [["sanctum" => []]],
+        parameters: [
+            new OA\Parameter(name: "id", in: "path", required: true, schema: new OA\Schema(type: "integer")),
+        ],
+        responses: [
+            new OA\Response(response: 200, description: "Model activated"),
+        ]
+    )]
     public function activate(AiModel $aiModel): JsonResponse
     {
-        // Deactivate all others first for clean state
         AiModel::where('id', '!=', $aiModel->id)->update(['is_active' => false]);
         $aiModel->update(['is_active' => true]);
 
         return response()->json(['message' => "Model '{$aiModel->name} v{$aiModel->version}' is now the active model."]);
     }
 
-    /**
-     * Deactivate a model.
-     */
+    // ============================================================
+    //  DEACTIVATE
+    // ============================================================
+
+    #[OA\Post(
+        path: "/admin/ai-models/{id}/deactivate",
+        tags: ["Admin — AI Models"],
+        summary: "Deactivate a model",
+        security: [["sanctum" => []]],
+        parameters: [
+            new OA\Parameter(name: "id", in: "path", required: true, schema: new OA\Schema(type: "integer")),
+        ],
+        responses: [
+            new OA\Response(response: 200, description: "Model deactivated"),
+        ]
+    )]
     public function deactivate(AiModel $aiModel): JsonResponse
     {
         $aiModel->update(['is_active' => false]);

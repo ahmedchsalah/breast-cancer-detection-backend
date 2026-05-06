@@ -8,12 +8,55 @@ use App\Http\Requests\Api\Organization\StoreOrganizationRequest;
 use App\Http\Requests\Api\Organization\UpdateOrganizationRequest;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
+use OpenApi\Attributes as OA;
 
+#[OA\Schema(
+    schema: "OrganizationObject",
+    type: "object",
+    properties: [
+        new OA\Property(property: "id", type: "integer"),
+        new OA\Property(property: "name", type: "string"),
+        new OA\Property(property: "type", type: "string"),
+        new OA\Property(property: "status", type: "string"),
+        new OA\Property(property: "contact_email", type: "string"),
+        new OA\Property(property: "address", type: "string"),
+        new OA\Property(property: "latitude", type: "number", format: "float", nullable: true),
+        new OA\Property(property: "longitude", type: "number", format: "float", nullable: true),
+        new OA\Property(property: "plan_id", type: "integer", nullable: true),
+        new OA\Property(property: "subscription_status", type: "string"),
+        new OA\Property(property: "created_at", type: "string", format: "date-time"),
+    ]
+)]
 class OrganizationController extends Controller
 {
-    /**
-     * List all organizations with filtering and pagination.
-     */
+    // ============================================================
+    //  INDEX
+    // ============================================================
+
+    #[OA\Get(
+        path: "/admin/organizations",
+        tags: ["Admin — Organizations"],
+        summary: "List all organizations with filtering and pagination",
+        security: [["sanctum" => []]],
+        parameters: [
+            new OA\Parameter(name: "status", in: "query", required: false, schema: new OA\Schema(type: "string", enum: ["pending", "active", "rejected", "suspended"])),
+            new OA\Parameter(name: "type", in: "query", required: false, schema: new OA\Schema(type: "string", enum: ["clinic", "hospital", "laboratory", "radiology_center"])),
+            new OA\Parameter(name: "search", in: "query", required: false, schema: new OA\Schema(type: "string")),
+        ],
+        responses: [
+            new OA\Response(
+                response: 200,
+                description: "Paginated list of organizations",
+                content: new OA\JsonContent(
+                    properties: [
+                        new OA\Property(property: "data", type: "array", items: new OA\Items(ref: "#/components/schemas/OrganizationObject")),
+                        new OA\Property(property: "current_page", type: "integer"),
+                        new OA\Property(property: "total", type: "integer"),
+                    ]
+                )
+            )
+        ]
+    )]
     public function index(Request $request): JsonResponse
     {
         $request->validate([
@@ -38,9 +81,27 @@ class OrganizationController extends Controller
         return response()->json($query->orderByDesc('created_at')->paginate(15));
     }
 
-    /**
-     * Show a single organization with full details.
-     */
+    // ============================================================
+    //  SHOW
+    // ============================================================
+
+    #[OA\Get(
+        path: "/admin/organizations/{id}",
+        tags: ["Admin — Organizations"],
+        summary: "Show a single organization with full details",
+        security: [["sanctum" => []]],
+        parameters: [
+            new OA\Parameter(name: "id", in: "path", required: true, schema: new OA\Schema(type: "integer")),
+        ],
+        responses: [
+            new OA\Response(
+                response: 200,
+                description: "Organization details",
+                content: new OA\JsonContent(ref: "#/components/schemas/OrganizationObject")
+            ),
+            new OA\Response(response: 404, description: "Not found"),
+        ]
+    )]
     public function show(Organization $organization): JsonResponse
     {
         $organization->load(['plan', 'subscriptions' => fn($q) => $q->latest()->limit(1)])
@@ -49,9 +110,35 @@ class OrganizationController extends Controller
         return response()->json($organization);
     }
 
-    /**
-     * Create a new organization (admin can do this directly).
-     */
+    // ============================================================
+    //  STORE
+    // ============================================================
+
+    #[OA\Post(
+        path: "/admin/organizations",
+        tags: ["Admin — Organizations"],
+        summary: "Create a new organization (admin can do this directly)",
+        security: [["sanctum" => []]],
+        requestBody: new OA\RequestBody(
+            required: true,
+            content: new OA\JsonContent(
+                required: ["name", "type", "contact_email"],
+                properties: [
+                    new OA\Property(property: "name", type: "string"),
+                    new OA\Property(property: "type", type: "string", enum: ["clinic", "hospital", "laboratory", "radiology_center"]),
+                    new OA\Property(property: "contact_email", type: "string", format: "email"),
+                    new OA\Property(property: "address", type: "string", nullable: true),
+                    new OA\Property(property: "latitude", type: "number", format: "float", nullable: true),
+                    new OA\Property(property: "longitude", type: "number", format: "float", nullable: true),
+                    new OA\Property(property: "plan_id", type: "integer", nullable: true),
+                ]
+            )
+        ),
+        responses: [
+            new OA\Response(response: 201, description: "Organization created", content: new OA\JsonContent(ref: "#/components/schemas/OrganizationObject")),
+            new OA\Response(response: 422, description: "Validation error"),
+        ]
+    )]
     public function store(StoreOrganizationRequest $request): JsonResponse
     {
         $org = Organization::create($request->validated());
@@ -59,9 +146,38 @@ class OrganizationController extends Controller
         return response()->json($org, 201);
     }
 
-    /**
-     * Update organization details.
-     */
+    // ============================================================
+    //  UPDATE
+    // ============================================================
+
+    #[OA\Put(
+        path: "/admin/organizations/{id}",
+        tags: ["Admin — Organizations"],
+        summary: "Update organization details",
+        security: [["sanctum" => []]],
+        parameters: [
+            new OA\Parameter(name: "id", in: "path", required: true, schema: new OA\Schema(type: "integer")),
+        ],
+        requestBody: new OA\RequestBody(
+            required: true,
+            content: new OA\JsonContent(
+                properties: [
+                    new OA\Property(property: "name", type: "string"),
+                    new OA\Property(property: "type", type: "string", enum: ["clinic", "hospital", "laboratory", "radiology_center"]),
+                    new OA\Property(property: "contact_email", type: "string", format: "email"),
+                    new OA\Property(property: "address", type: "string", nullable: true),
+                    new OA\Property(property: "latitude", type: "number", format: "float", nullable: true),
+                    new OA\Property(property: "longitude", type: "number", format: "float", nullable: true),
+                    new OA\Property(property: "plan_id", type: "integer", nullable: true),
+                ]
+            )
+        ),
+        responses: [
+            new OA\Response(response: 200, description: "Organization updated", content: new OA\JsonContent(ref: "#/components/schemas/OrganizationObject")),
+            new OA\Response(response: 404, description: "Not found"),
+            new OA\Response(response: 422, description: "Validation error"),
+        ]
+    )]
     public function update(UpdateOrganizationRequest $request, Organization $organization): JsonResponse
     {
         $organization->update($request->validated());
@@ -69,9 +185,23 @@ class OrganizationController extends Controller
         return response()->json($organization->fresh());
     }
 
-    /**
-     * Delete an organization (cascades on DB level).
-     */
+    // ============================================================
+    //  DESTROY
+    // ============================================================
+
+    #[OA\Delete(
+        path: "/admin/organizations/{id}",
+        tags: ["Admin — Organizations"],
+        summary: "Delete an organization (cascades on DB level)",
+        security: [["sanctum" => []]],
+        parameters: [
+            new OA\Parameter(name: "id", in: "path", required: true, schema: new OA\Schema(type: "integer")),
+        ],
+        responses: [
+            new OA\Response(response: 200, description: "Organization deleted"),
+            new OA\Response(response: 404, description: "Not found"),
+        ]
+    )]
     public function destroy(Organization $organization): JsonResponse
     {
         $organization->delete();
@@ -79,9 +209,24 @@ class OrganizationController extends Controller
         return response()->json(['message' => 'Organization deleted successfully.']);
     }
 
-    /**
-     * Approve a pending organization and activate it.
-     */
+    // ============================================================
+    //  APPROVE
+    // ============================================================
+
+    #[OA\Post(
+        path: "/admin/organizations/{id}/approve",
+        tags: ["Admin — Organizations"],
+        summary: "Approve a pending organization and activate it",
+        security: [["sanctum" => []]],
+        parameters: [
+            new OA\Parameter(name: "id", in: "path", required: true, schema: new OA\Schema(type: "integer")),
+        ],
+        responses: [
+            new OA\Response(response: 200, description: "Organization approved"),
+            new OA\Response(response: 422, description: "Organization is not pending"),
+            new OA\Response(response: 404, description: "Not found"),
+        ]
+    )]
     public function approve(Organization $organization): JsonResponse
     {
         if ($organization->status !== Organization::STATUS_PENDING) {
@@ -93,9 +238,23 @@ class OrganizationController extends Controller
         return response()->json(['message' => 'Organization approved and activated.', 'organization' => $organization]);
     }
 
-    /**
-     * Reject a pending organization.
-     */
+    // ============================================================
+    //  REJECT
+    // ============================================================
+
+    #[OA\Post(
+        path: "/admin/organizations/{id}/reject",
+        tags: ["Admin — Organizations"],
+        summary: "Reject a pending organization",
+        security: [["sanctum" => []]],
+        parameters: [
+            new OA\Parameter(name: "id", in: "path", required: true, schema: new OA\Schema(type: "integer")),
+        ],
+        responses: [
+            new OA\Response(response: 200, description: "Organization rejected"),
+            new OA\Response(response: 404, description: "Not found"),
+        ]
+    )]
     public function reject(Organization $organization): JsonResponse
     {
         $organization->update(['status' => Organization::STATUS_REJECTED]);
@@ -103,9 +262,23 @@ class OrganizationController extends Controller
         return response()->json(['message' => 'Organization rejected.', 'organization' => $organization]);
     }
 
-    /**
-     * Suspend an active organization.
-     */
+    // ============================================================
+    //  SUSPEND
+    // ============================================================
+
+    #[OA\Post(
+        path: "/admin/organizations/{id}/suspend",
+        tags: ["Admin — Organizations"],
+        summary: "Suspend an active organization",
+        security: [["sanctum" => []]],
+        parameters: [
+            new OA\Parameter(name: "id", in: "path", required: true, schema: new OA\Schema(type: "integer")),
+        ],
+        responses: [
+            new OA\Response(response: 200, description: "Organization suspended"),
+            new OA\Response(response: 404, description: "Not found"),
+        ]
+    )]
     public function suspend(Organization $organization): JsonResponse
     {
         $organization->update(['status' => Organization::STATUS_SUSPENDED]);

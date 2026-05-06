@@ -8,12 +8,47 @@ use App\Models\FlContribution;
 use App\Models\FlRound;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
+use OpenApi\Attributes as OA;
 
+#[OA\Schema(
+    schema: "FlRoundObject",
+    type: "object",
+    properties: [
+        new OA\Property(property: "id", type: "integer"),
+        new OA\Property(property: "ai_model_id", type: "integer"),
+        new OA\Property(property: "round_number", type: "integer"),
+        new OA\Property(property: "status", type: "string", enum: ["pending", "in_progress", "completed", "failed"]),
+        new OA\Property(property: "global_accuracy", type: "number", format: "float", nullable: true),
+        new OA\Property(property: "started_at", type: "string", format: "date-time", nullable: true),
+        new OA\Property(property: "ended_at", type: "string", format: "date-time", nullable: true),
+        new OA\Property(property: "created_at", type: "string", format: "date-time"),
+    ]
+)]
 class FederatedRoundController extends Controller
 {
-    /**
-     * List all FL rounds.
-     */
+    // ============================================================
+    //  INDEX
+    // ============================================================
+
+    #[OA\Get(
+        path: "/instructor/fl-rounds",
+        tags: ["Instructor — FL Rounds"],
+        summary: "List all FL rounds",
+        security: [["sanctum" => []]],
+        responses: [
+            new OA\Response(
+                response: 200,
+                description: "Paginated list of FL rounds",
+                content: new OA\JsonContent(
+                    properties: [
+                        new OA\Property(property: "data", type: "array", items: new OA\Items(ref: "#/components/schemas/FlRoundObject")),
+                        new OA\Property(property: "current_page", type: "integer"),
+                        new OA\Property(property: "total", type: "integer"),
+                    ]
+                )
+            )
+        ]
+    )]
     public function index(): JsonResponse
     {
         $rounds = FlRound::with('aiModel:id,name,version')
@@ -24,9 +59,27 @@ class FederatedRoundController extends Controller
         return response()->json($rounds);
     }
 
-    /**
-     * Show a specific round with all organization contributions.
-     */
+    // ============================================================
+    //  SHOW
+    // ============================================================
+
+    #[OA\Get(
+        path: "/instructor/fl-rounds/{id}",
+        tags: ["Instructor — FL Rounds"],
+        summary: "Show a specific round with all organization contributions",
+        security: [["sanctum" => []]],
+        parameters: [
+            new OA\Parameter(name: "id", in: "path", required: true, schema: new OA\Schema(type: "integer")),
+        ],
+        responses: [
+            new OA\Response(
+                response: 200,
+                description: "FL round details",
+                content: new OA\JsonContent(ref: "#/components/schemas/FlRoundObject")
+            ),
+            new OA\Response(response: 404, description: "Not found"),
+        ]
+    )]
     public function show(FlRound $flRound): JsonResponse
     {
         $flRound->load([
@@ -37,9 +90,29 @@ class FederatedRoundController extends Controller
         return response()->json($flRound);
     }
 
-    /**
-     * Open a new FL round for a given model.
-     */
+    // ============================================================
+    //  STORE
+    // ============================================================
+
+    #[OA\Post(
+        path: "/instructor/fl-rounds",
+        tags: ["Instructor — FL Rounds"],
+        summary: "Open a new FL round for a given model",
+        security: [["sanctum" => []]],
+        requestBody: new OA\RequestBody(
+            required: true,
+            content: new OA\JsonContent(
+                required: ["ai_model_id"],
+                properties: [
+                    new OA\Property(property: "ai_model_id", type: "integer"),
+                ]
+            )
+        ),
+        responses: [
+            new OA\Response(response: 201, description: "FL round created", content: new OA\JsonContent(ref: "#/components/schemas/FlRoundObject")),
+            new OA\Response(response: 422, description: "Active FL round already exists for this model"),
+        ]
+    )]
     public function store(Request $request): JsonResponse
     {
         $validated = $request->validate([
@@ -64,9 +137,33 @@ class FederatedRoundController extends Controller
         return response()->json($round, 201);
     }
 
-    /**
-     * Complete an FL round and record the aggregated global accuracy.
-     */
+    // ============================================================
+    //  COMPLETE
+    // ============================================================
+
+    #[OA\Post(
+        path: "/instructor/fl-rounds/{id}/complete",
+        tags: ["Instructor — FL Rounds"],
+        summary: "Complete an FL round and record the aggregated global accuracy",
+        security: [["sanctum" => []]],
+        parameters: [
+            new OA\Parameter(name: "id", in: "path", required: true, schema: new OA\Schema(type: "integer")),
+        ],
+        requestBody: new OA\RequestBody(
+            required: true,
+            content: new OA\JsonContent(
+                required: ["global_accuracy"],
+                properties: [
+                    new OA\Property(property: "global_accuracy", type: "number", format: "float"),
+                ]
+            )
+        ),
+        responses: [
+            new OA\Response(response: 200, description: "FL round completed"),
+            new OA\Response(response: 422, description: "Validation error / Round already completed"),
+            new OA\Response(response: 404, description: "Not found"),
+        ]
+    )]
     public function complete(Request $request, FlRound $flRound): JsonResponse
     {
         if ($flRound->status === 'completed') {
