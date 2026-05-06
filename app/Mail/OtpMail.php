@@ -2,6 +2,7 @@
 
 namespace App\Mail;
 
+use App\Models\User;
 use Illuminate\Bus\Queueable;
 use Illuminate\Mail\Mailable;
 use Illuminate\Mail\Mailables\Content;
@@ -12,24 +13,28 @@ class OtpMail extends Mailable
 {
     use Queueable, SerializesModels;
 
-    public $token;
+    public string $token;
+    public string $userName;
+    public string $userRole;
 
-    public function __construct($token)
+    public function __construct(string $token, User $user)
     {
-        $this->token = $token;
+        $this->token    = $token;
+        $this->userName = $user->name;
+        $this->userRole = $user->getRoleNames()->first() ?? 'user';
     }
 
     public function envelope(): Envelope
     {
         return new Envelope(
-            subject: 'Your Login Verification Code',
+            subject: 'Your Verification Code — Federated Medical AI',
         );
     }
 
     public function content(): Content
     {
         return new Content(
-            view: 'emails.otp', // We create this view next
+            view: 'emails.otp',
         );
     }
 

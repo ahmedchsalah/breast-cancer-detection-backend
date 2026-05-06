@@ -270,7 +270,7 @@ class AuthController extends Controller
             }
         } else {
             try {
-                Mail::to($user->email)->send(new OtpMail($otpString));
+                Mail::to($user->email)->send(new OtpMail($otpString, $user));
                 $channel = 'email';
             } catch (\Exception $e) {
                 \Log::error('OTP Email Error: ' . $e->getMessage());
