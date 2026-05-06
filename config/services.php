@@ -41,4 +41,9 @@ return [
         'content_sid'   => env('TWILIO_CONTENT_SID'),
     ],
 
+    'chargily' => [
+        'secret_key' => env('CHARGILY_SECRET_KEY'),
+        'mode'       => env('CHARGILY_MODE', 'test'), // 'test' or 'live'
+    ],
+
 ];

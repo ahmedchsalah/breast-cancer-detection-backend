@@ -8,7 +8,14 @@ class Otp extends Model
 {
     use HasFactory;
 
-    protected $fillable = ['identifier', 'token', 'expires_at'];
+    protected $fillable = [
+        'identifier',
+        'token',
+        'method',      // ← was missing from fillable
+        'expires_at',
+    ];
 
-    public $timestamps = true;
+    protected $casts = [
+        'expires_at' => 'datetime', // ← add cast
+    ];
 }

@@ -10,23 +10,24 @@ class Organization extends Model
 {
     use HasFactory;
 
-    // Enum Constants
-    public const TYPE_CLINIC = 'clinic';
-    public const TYPE_HOSPITAL = 'hospital';
-    public const TYPE_LABORATORY = 'laboratory';
-    public const TYPE_RADIOLOGY = 'radiology_center';
+    public const TYPE_CLINIC           = 'clinic';
+    public const TYPE_HOSPITAL         = 'hospital';
+    public const TYPE_LABORATORY       = 'laboratory';
+    public const TYPE_RADIOLOGY        = 'radiology_center';
 
-    public const STATUS_PENDING = 'pending';
-    public const STATUS_ACTIVE = 'active';
-    public const STATUS_REJECTED = 'rejected';
-    public const STATUS_SUSPENDED = 'suspended';
+    public const STATUS_PENDING        = 'pending';
+    public const STATUS_ACTIVE         = 'active';
+    public const STATUS_REJECTED       = 'rejected';
+    public const STATUS_SUSPENDED      = 'suspended';
 
     protected $fillable = [
         'plan_id',
         'name',
         'type',
-        'status', // Added this
+        'status',
         'address',
+        'latitude',            // ← was missing
+        'longitude',           // ← was missing
         'contact_email',
         'subscription_status',
         'subscription_ends_at',
@@ -34,6 +35,8 @@ class Organization extends Model
 
     protected $casts = [
         'subscription_ends_at' => 'date',
+        'latitude'             => 'float', // ← cast
+        'longitude'            => 'float', // ← cast
     ];
 
     public function plan(): BelongsTo
@@ -49,5 +52,45 @@ class Organization extends Model
     public function invitations(): HasMany
     {
         return $this->hasMany(Invitation::class);
+    }
+
+    public function patients(): HasMany
+    {
+        return $this->hasMany(Patient::class);
+    }
+
+    public function examinations(): HasMany
+    {
+        return $this->hasMany(Examination::class);
+    }
+
+    public function predictions(): HasMany
+    {
+        return $this->hasMany(Prediction::class);  // ← removed doctor_id, org scoped
+    }
+
+    public function subscriptions(): HasMany
+    {
+        return $this->hasMany(Subscription::class);
+    }
+
+    public function payments(): HasMany
+    {
+        return $this->hasMany(Payment::class);
+    }
+
+    public function flContributions(): HasMany
+    {
+        return $this->hasMany(FlContribution::class);
+    }
+
+    public function wsiUploads(): HasMany
+    {
+        return $this->hasMany(WsiUpload::class);
+    }
+
+    public function reports(): HasMany
+    {
+        return $this->hasMany(Report::class);
     }
 }
