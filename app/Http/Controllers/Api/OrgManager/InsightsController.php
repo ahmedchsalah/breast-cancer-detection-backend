@@ -92,7 +92,7 @@ class InsightsController extends Controller
     {
         $data = Patient::where('organization_id', $this->orgId())
             ->select(
-                DB::raw("DATE_FORMAT(created_at, '%Y-%m') as month"),
+                DB::raw("TO_CHAR(created_at, 'YYYY-MM') as month"),
                 DB::raw('COUNT(*) as count')
             )
             ->where('created_at', '>=', now()->subYear())
@@ -134,7 +134,7 @@ class InsightsController extends Controller
     {
         $data = Prediction::where('organization_id', $this->orgId())
             ->select(
-                DB::raw("DATE_FORMAT(created_at, '%Y-%m') as month"),
+                DB::raw("TO_CHAR(created_at, 'YYYY-MM') as month"),
                 DB::raw('COUNT(*) as total'),
                 DB::raw("SUM(CASE WHEN status = 'completed' THEN 1 ELSE 0 END) as completed"),
                 DB::raw("SUM(CASE WHEN status = 'failed' THEN 1 ELSE 0 END) as failed")

@@ -98,7 +98,7 @@ class InsightsController extends Controller
     {
         $data = Examination::where('doctor_id', $this->doctor()->id)
             ->select(
-                DB::raw("DATE_FORMAT(examined_at, '%Y-%m') as month"),
+                DB::raw("TO_CHAR(examined_at, 'YYYY-MM') as month"),
                 DB::raw('COUNT(*) as count')
             )
             ->where('examined_at', '>=', now()->subYear())
