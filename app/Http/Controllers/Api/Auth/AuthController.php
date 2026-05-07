@@ -142,7 +142,7 @@ class AuthController extends Controller
         ]);
 
         $query = Organization::where('status', Organization::STATUS_ACTIVE)
-            ->select('id', 'name', 'type', 'code')
+            ->select('id', 'name', 'type')
             ->orderBy('name');
 
         if ($request->filled('type')) {
