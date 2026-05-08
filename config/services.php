@@ -46,4 +46,11 @@ return [
         'mode'       => env('CHARGILY_MODE', 'test'), // 'test' or 'live'
     ],
 
+    // ── BReCAI FastAPI microservice (HuggingFace Spaces) ──────────────────────
+    'brecai' => [
+        'url'    => env('BRECAI_FASTAPI_URL', 'https://ahmedchikhsalah-brecai-api.hf.space'),
+        'secret' => env('BRECAI_INTERNAL_SECRET', 'change-me-in-production'),
+    ],
+
 ];
+

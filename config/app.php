@@ -123,4 +123,10 @@ return [
         'store' => env('APP_MAINTENANCE_STORE', 'database'),
     ],
 
+    // ── BReCAI Internal Webhook Secret ────────────────────────────────────────
+    // Shared between Laravel and the FastAPI microservice to authenticate
+    // the prediction result webhook (X-Internal-Secret header).
+    'internal_webhook_secret' => env('BRECAI_INTERNAL_SECRET', 'change-me-in-production'),
+
 ];
+

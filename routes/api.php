@@ -50,8 +50,9 @@ Route::prefix('auth')->group(function () {
 // ─────────────────────────────────────────────────────────────────────────────
 // INTERNAL — FastAPI webhook (secret-key protected, not Sanctum)
 // ─────────────────────────────────────────────────────────────────────────────
-Route::prefix('internal')->group(function () {
-    Route::post('/predictions/{jobId}/result', [PredictionWebhookController::class, 'handle']);
+Route::prefix('internal')->name('internal.')->group(function () {
+    Route::post('/predictions/{jobId}/result', [PredictionWebhookController::class, 'handle'])
+         ->name('predictions.result');
 });
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -178,6 +179,7 @@ Route::middleware('auth:sanctum')->group(function () {
 
         // WSI uploads
         Route::apiResource('wsi-uploads', WsiUploadController::class)->except(['update']);
+        Route::post('wsi-uploads/{wsiUpload}/extract-features', [WsiUploadController::class, 'extractFeatures']);
 
         // Predictions
         Route::get('predictions',                               [PredictionController::class, 'index']);

@@ -20,7 +20,14 @@ class WsiUpload extends Model
         'file_size_bytes',
         'mime_type',
         'status',
+        'features_path',          // path to pre-extracted CONCH .pt feature file
+        'features_extracted_at',  // when features were extracted
     ];
+
+    protected $casts = [
+        'features_extracted_at' => 'datetime',
+    ];
+
 
     public function patient(): BelongsTo
     {

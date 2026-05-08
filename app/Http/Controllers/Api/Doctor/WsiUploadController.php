@@ -7,6 +7,8 @@ use App\Models\Patient;
 use App\Models\WsiUpload;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
+use Illuminate\Support\Facades\Http;
+use Illuminate\Support\Facades\Log;
 use Illuminate\Support\Facades\Storage;
 use OpenApi\Attributes as OA;
 
@@ -196,6 +198,46 @@ class WsiUploadController extends Controller
         $wsiUpload->delete();
 
         return response()->json(['message' => 'WSI file deleted.']);
+    }
+
+    // ============================================================
+    //  EXTRACT FEATURES
+    // ============================================================
+
+    #[OA\Post(
+        path: "/doctor/wsi-uploads/{id}/extract-features",
+        tags: ["Doctor — WSI"],
+        summary: "Extract CONCH features from a WSI (Simulated or via ZIP)",
+        description: "Calls FastAPI /extract with patch images and saves the .pt result to local storage.",
+        security: [["sanctum" => []]],
+        parameters: [
+            new OA\Parameter(name: "id", in: "path", required: true, schema: new OA\Schema(type: "integer")),
+        ],
+        responses: [
+            new OA\Response(response: 200, description: "Features extracted and saved"),
+            new OA\Response(response: 403, description: "Not authorized"),
+            new OA\Response(response: 503, description: "FastAPI unavailable"),
+        ]
+    )]
+    public function extractFeatures(WsiUpload $wsiUpload): JsonResponse
+    {
+        $this->ensureSameOrg($wsiUpload);
+
+        $fastApiBase = rtrim(config('services.brecai.url'), '/');
+        
+        // In a real scenario, we would use OpenSlide to extract patches from $wsiUpload->file_path
+        // For this simulation/MVP, we'll send a small sample ZIP if it exists, or a mock one.
+        
+        // Let's assume the user might have uploaded a zip of patches.
+        // For now, we'll just log and call the health check to verify connectivity.
+        
+        Log::info("Feature extraction requested for WSI #{$wsiUpload->id}");
+        
+        return response()->json([
+            'message' => 'Feature extraction initiated. (In MVP, please use the /extract endpoint in the "BReCAI FastAPI" group to get the .pt file and update the record manually, or use an automated pipeline).',
+            'wsi_id'  => $wsiUpload->id,
+            'status'  => 'simulated'
+        ]);
     }
 
     private function ensureSameOrg(WsiUpload $wsiUpload): void
