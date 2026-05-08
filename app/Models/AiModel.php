@@ -12,24 +12,60 @@ class AiModel extends Model
 
     protected $fillable = [
         'name',
+        'slug',
         'version',
-        'file_path',
+        'inference_type',
+        'description',
+        'auc',
+        'accuracy',
+        'sensitivity',
+        'specificity',
+        'f1_score',
+        'n_checkpoints',
+        'threshold',
         'metadata',
         'is_active',
     ];
 
     protected $casts = [
-        'metadata'  => 'array',
-        'is_active' => 'boolean',
+        'metadata'     => 'array',
+        'is_active'    => 'boolean',
+        'auc'          => 'float',
+        'accuracy'     => 'float',
+        'sensitivity'  => 'float',
+        'specificity'  => 'float',
+        'f1_score'     => 'float',
+        'threshold'    => 'float',
+        'n_checkpoints'=> 'integer',
     ];
+
+    public function predictions(): HasMany
+    {
+        return $this->hasMany(Prediction::class);
+    }
 
     public function flRounds(): HasMany
     {
         return $this->hasMany(FlRound::class);
     }
 
-    public function predictions(): HasMany
+    /**
+     * Get the currently active A6 fusion model (default for new predictions).
+     */
+    public static function activeA6(): self
     {
-        return $this->hasMany(Prediction::class);
+        return static::where('inference_type', 'a6_fusion')
+            ->where('is_active', true)
+            ->firstOrFail();
+    }
+
+    /**
+     * Get the active A4 image-only model.
+     */
+    public static function activeA4(): self
+    {
+        return static::where('inference_type', 'a4_image_only')
+            ->where('is_active', true)
+            ->firstOrFail();
     }
 }

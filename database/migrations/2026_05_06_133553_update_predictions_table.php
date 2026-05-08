@@ -6,11 +6,11 @@ use Illuminate\Support\Facades\Schema;
 
 return new class extends Migration
 {
-    /**
-     * Run the migrations.
-     */
     public function up(): void
     {
+        // Drop old predictions table (had wrong columns from initial migration) and recreate
+        Schema::dropIfExists('predictions');
+
         Schema::create('predictions', function (Blueprint $table) {
             $table->id();
             $table->foreignId('examination_id')->constrained()->cascadeOnDelete();
@@ -32,6 +32,9 @@ return new class extends Migration
             $table->string('job_id')->nullable()->unique();
             $table->text('failure_reason')->nullable();
             $table->timestamp('completed_at')->nullable();
+
+            // Organisation scoping
+            $table->foreignId('organization_id')->nullable()->constrained()->nullOnDelete();
 
             $table->timestamps();
         });
