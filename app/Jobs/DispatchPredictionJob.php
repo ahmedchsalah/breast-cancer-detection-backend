@@ -47,9 +47,10 @@ class DispatchPredictionJob implements ShouldQueue
         // Mark as processing
         $prediction->update(['status' => Prediction::STATUS_PROCESSING]);
 
-        $fastApiBase  = rtrim(config('services.brecai.url'), '/');
+        $fastApiBase    = rtrim(config('services.brecai.url'), '/');
         $internalSecret = config('services.brecai.secret');
-        $webhookUrl   = route('internal.predictions.result', ['jobId' => $prediction->job_id]);
+        $hfToken        = config('services.brecai.hf_token');
+        $webhookUrl     = route('internal.predictions.result', ['jobId' => $prediction->job_id]);
 
         $patient = $prediction->patient;
 
@@ -86,11 +87,11 @@ class DispatchPredictionJob implements ShouldQueue
         try {
             if ($hasPtFile) {
                 // ── A6 Full Fusion ────────────────────────────────────────────
-                $this->callA6($fastApiBase, $internalSecret, $webhookUrl,
+                $this->callA6($fastApiBase, $internalSecret, $hfToken, $webhookUrl,
                               $prediction, $clinical, $mode, $featuresPath);
             } else {
                 // ── Clinical-only fallback ────────────────────────────────────
-                $this->callClinical($fastApiBase, $internalSecret, $webhookUrl,
+                $this->callClinical($fastApiBase, $internalSecret, $hfToken, $webhookUrl,
                                    $prediction, $clinical, $mode);
             }
         } catch (\Throwable $e) {
@@ -107,19 +108,22 @@ class DispatchPredictionJob implements ShouldQueue
     //  A6 Cross-Attention Fusion (requires pre-extracted .pt feature file)
     // ─────────────────────────────────────────────────────────────────────────
     private function callA6(
-        string $base, string $secret, string $webhookUrl,
+        string $base, string $secret, ?string $hfToken, string $webhookUrl,
         Prediction $prediction, array $clinical, string $mode,
         string $featuresPath
     ): void {
         $ptContent = Storage::disk('local')->get($featuresPath);
+        $client    = Http::timeout(540);
 
-        $response = Http::timeout(540)
-            ->attach('features_file', $ptContent, 'features.pt')
+        if ($hfToken) {
+            $client = $client->withToken($hfToken);
+        }
+
+        $response = $client->attach('features_file', $ptContent, 'features.pt')
             ->post("{$base}/predict/a6", [
                 'clinical_json' => json_encode($clinical),
                 'mode'          => $mode,
                 'job_id'        => $prediction->job_id,
-                // No webhook_url — we process the response directly here
             ]);
 
         $this->processHttpResponse($response, $prediction, 'a6_fusion');
@@ -129,11 +133,16 @@ class DispatchPredictionJob implements ShouldQueue
     //  Clinical-only (no WSI / no .pt file)
     // ─────────────────────────────────────────────────────────────────────────
     private function callClinical(
-        string $base, string $secret, string $webhookUrl,
+        string $base, string $secret, ?string $hfToken, string $webhookUrl,
         Prediction $prediction, array $clinical, string $mode
     ): void {
-        $response = Http::timeout(120)
-            ->post("{$base}/predict/clinical", [
+        $client = Http::timeout(120);
+
+        if ($hfToken) {
+            $client = $client->withToken($hfToken);
+        }
+
+        $response = $client->post("{$base}/predict/clinical", [
                 'clinical' => $clinical,
                 'mode'     => $mode,
                 'job_id'   => $prediction->job_id,

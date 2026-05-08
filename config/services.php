@@ -48,8 +48,9 @@ return [
 
     // ── BReCAI FastAPI microservice (HuggingFace Spaces) ──────────────────────
     'brecai' => [
-        'url'    => env('BRECAI_FASTAPI_URL', 'https://ahmedchikhsalah-brecai-api.hf.space'),
-        'secret' => env('BRECAI_INTERNAL_SECRET', 'change-me-in-production'),
+        'url'      => env('BRECAI_FASTAPI_URL', 'https://ahmedchikhsalah-brecai-api.hf.space'),
+        'secret'   => env('BRECAI_INTERNAL_SECRET', 'change-me-in-production'),
+        'hf_token' => env('HF_TOKEN'),
     ],
 
 ];
