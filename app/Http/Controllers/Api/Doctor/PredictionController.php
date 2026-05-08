@@ -164,6 +164,7 @@ class PredictionController extends Controller
         $validated = $request->validate([
             'examination_id' => 'required|integer|exists:examinations,id',
             'wsi_upload_id'  => 'nullable|integer|exists:wsi_uploads,id',
+            'ai_model_id'    => 'nullable|integer|exists:ai_models,id',
         ]);
 
         $examination = Examination::with('patient')->findOrFail($validated['examination_id']);
@@ -180,8 +181,13 @@ class PredictionController extends Controller
             return response()->json(['message' => 'A prediction has already been made for this examination.'], 422);
         }
 
-        // Get the active AI model
-        $aiModel = AiModel::where('is_active', true)->first();
+        // Get the AI model (specific or first active)
+        if ($request->filled('ai_model_id')) {
+            $aiModel = AiModel::findOrFail($request->ai_model_id);
+        } else {
+            $aiModel = AiModel::where('is_active', true)->first();
+        }
+
         if (!$aiModel) {
             return response()->json(['message' => 'No active AI model is available. Please contact your administrator.'], 503);
         }
