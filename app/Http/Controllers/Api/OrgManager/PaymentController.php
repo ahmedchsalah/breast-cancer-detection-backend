@@ -126,7 +126,18 @@ class PaymentController extends Controller
 
         $plan     = Plan::findOrFail($validated['plan_id']);
         $months   = $validated['duration_months'];
-        $amount   = (int) round($plan->price * $months * 100); // Chargily V2 expects centimes (amount * 100)
+        
+        $discountPercent = 0;
+        if ($months === 3) {
+            $discountPercent = 0.05;
+        } elseif ($months === 6) {
+            $discountPercent = 0.10;
+        } elseif ($months === 12) {
+            $discountPercent = 0.15;
+        }
+
+        $discountedPrice = $plan->price * $months * (1 - $discountPercent);
+        $amount   = (int) round($discountedPrice * 100); // Chargily V2 expects centimes (amount * 100)
 
         // Build callback URLs
         $successUrl = config('app.frontend_url') . '/payment/success';
