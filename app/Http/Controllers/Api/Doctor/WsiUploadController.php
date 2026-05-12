@@ -219,24 +219,46 @@ class WsiUploadController extends Controller
             new OA\Response(response: 503, description: "FastAPI unavailable"),
         ]
     )]
-    public function extractFeatures(WsiUpload $wsiUpload): JsonResponse
+    public function extractFeatures(Request $request, WsiUpload $wsiUpload): JsonResponse
     {
         $this->ensureSameOrg($wsiUpload);
 
+        // ── Simulation Mode ──────────────────────────────────────────────────
+        // Allows developers to test the Fusion (A6) pipeline without real slides.
+        if ($request->query('simulate') === '1') {
+            Log::info("[BReCAI] Simulating feature extraction for WSI #{$wsiUpload->id}");
+
+            // Create a dummy .pt path
+            $dummyPath = "features/{$wsiUpload->id}_mock.pt";
+            
+            // In a real PyTorch environment, this would be a torch.save()
+            // Here we just write a small binary blob that looks like a 1x512 float16 tensor
+            // This is enough to satisfy the "exists" check in DispatchPredictionJob.
+            // Note: The FastAPI space might fail if the file is truly corrupt, 
+            // but for a pure "flow" test, this works.
+            Storage::disk(config('filesystems.default'))->put($dummyPath, "DUMMY_CONCH_FEATURES_TENSOR");
+
+            $wsiUpload->update([
+                'status'                => 'ready',
+                'features_path'         => $dummyPath,
+                'features_extracted_at' => now(),
+            ]);
+
+            return response()->json([
+                'message' => 'Features simulated successfully. You can now run a Fusion (A6) prediction.',
+                'wsi'     => $wsiUpload
+            ]);
+        }
+
+        // ── Real Extraction Mode ─────────────────────────────────────────────
         $fastApiBase = rtrim(config('services.brecai.url'), '/');
-        
-        // In a real scenario, we would use OpenSlide to extract patches from $wsiUpload->file_path
-        // For this simulation/MVP, we'll send a small sample ZIP if it exists, or a mock one.
-        
-        // Let's assume the user might have uploaded a zip of patches.
-        // For now, we'll just log and call the health check to verify connectivity.
         
         Log::info("Feature extraction requested for WSI #{$wsiUpload->id}");
         
         return response()->json([
-            'message' => 'Feature extraction initiated. (In MVP, please use the /extract endpoint in the "BReCAI FastAPI" group to get the .pt file and update the record manually, or use an automated pipeline).',
+            'message' => 'Real feature extraction requires a ZIP of patches. Please use the /extract endpoint in the "BReCAI FastAPI" group to generate the .pt file, then upload it to this WSI record.',
             'wsi_id'  => $wsiUpload->id,
-            'status'  => 'simulated'
+            'status'  => 'pending'
         ]);
     }
 

@@ -49,17 +49,76 @@ class InsightsController extends Controller
     )]
     public function kpis(): JsonResponse
     {
+        $now   = now();
+        $month = $now->copy()->startOfMonth();
+
+        // Revenue
+        $totalRevenue   = \App\Models\Payment::where('status', 'completed')->sum('amount');
+        $monthlyRevenue = \App\Models\Payment::where('status', 'completed')
+            ->where('created_at', '>=', $month)->sum('amount');
+
+        // Subscriptions
+        $activeSubs  = Subscription::whereIn('status', ['active', 'trialing'])->count();
+        $expiredSubs = Subscription::where('status', 'expired')->count();
+
+        // WSI & XAI
+        $wsiUploads  = \App\Models\WsiUpload::count();
+        $xaiResults  = \App\Models\XaiResult::count();
+
+        // FL
+        $flRoundsActive = \App\Models\FlRound::where('status', 'in_progress')->count();
+        $flContribs     = \App\Models\FlContribution::count();
+
+        // Users by role
+        $doctors     = User::role('doctor')->count();
+        $orgManagers = User::role('org_manager')->count();
+        $instructors = User::role('instructor')->count();
+
+        // This month
+        $newUsersThisMonth   = User::where('created_at', '>=', $month)->count();
+        $newPatientsThisMonth= Patient::where('created_at', '>=', $month)->count();
+        $predsThisMonth      = Prediction::where('created_at', '>=', $month)->count();
+
         return response()->json([
-            'total_organizations'  => Organization::count(),
-            'active_organizations' => Organization::where('status', Organization::STATUS_ACTIVE)->count(),
-            'pending_organizations'=> Organization::where('status', Organization::STATUS_PENDING)->count(),
-            'total_users'          => User::count(),
-            'total_patients'       => Patient::count(),
-            'total_examinations'   => Examination::count(),
-            'total_predictions'    => Prediction::count(),
-            'completed_predictions'=> Prediction::where('status', Prediction::STATUS_COMPLETED)->count(),
-            'active_ai_models'     => AiModel::where('is_active', true)->count(),
-            'fl_rounds_completed'  => FlRound::where('status', 'completed')->count(),
+            // Core
+            'total_organizations'        => Organization::count(),
+            'active_organizations'       => Organization::where('status', Organization::STATUS_ACTIVE)->count(),
+            'pending_organizations'      => Organization::where('status', Organization::STATUS_PENDING)->count(),
+            'suspended_organizations'    => Organization::where('status', 'suspended')->count(),
+
+            // Users
+            'total_users'                => User::count(),
+            'doctors_count'              => $doctors,
+            'org_managers_count'         => $orgManagers,
+            'instructors_count'          => $instructors,
+            'new_users_this_month'       => $newUsersThisMonth,
+
+            // Clinical
+            'total_patients'             => Patient::count(),
+            'new_patients_this_month'    => $newPatientsThisMonth,
+            'total_examinations'         => Examination::count(),
+            'total_predictions'          => Prediction::count(),
+            'completed_predictions'      => Prediction::where('status', Prediction::STATUS_COMPLETED)->count(),
+            'pending_predictions'        => Prediction::where('status', 'pending')->count(),
+            'failed_predictions'         => Prediction::where('status', Prediction::STATUS_FAILED)->count(),
+            'predictions_this_month'     => $predsThisMonth,
+
+            // AI
+            'active_ai_models'           => AiModel::where('is_active', true)->count(),
+            'total_ai_models'            => AiModel::count(),
+            'wsi_uploads'                => $wsiUploads,
+            'xai_results_generated'      => $xaiResults,
+
+            // FL
+            'fl_rounds_completed'        => FlRound::where('status', 'completed')->count(),
+            'fl_rounds_active'           => $flRoundsActive,
+            'fl_contributions'           => $flContribs,
+
+            // Billing
+            'total_revenue_dzd'          => (float) $totalRevenue,
+            'monthly_revenue_dzd'        => (float) $monthlyRevenue,
+            'active_subscriptions'       => $activeSubs,
+            'expired_subscriptions'      => $expiredSubs,
         ]);
     }
 
