@@ -126,7 +126,7 @@ class PaymentController extends Controller
 
         $plan     = Plan::findOrFail($validated['plan_id']);
         $months   = $validated['duration_months'];
-        $amount   = (int) round($plan->price * $months); // Chargily wants integer (fils/centimes) — DZD is already integer
+        $amount   = (int) round($plan->price * $months * 100); // Chargily V2 expects centimes (amount * 100)
 
         // Build callback URLs
         $successUrl = config('app.frontend_url') . '/payment/success';
