@@ -44,8 +44,12 @@ use OpenApi\Attributes as OA;
 )]
 class PaymentController extends Controller
 {
-    private const CHARGILY_API = 'https://pay.chargily.net/api/v2';
-
+    private function getChargilyApiUrl()
+    {
+        return config('services.chargily.mode') === 'test' 
+            ? 'https://pay.chargily.net/test/api/v2' 
+            : 'https://pay.chargily.net/api/v2';
+    }
     private function org()
     {
         return auth()->user()->organization()->with('plan')->first();
@@ -146,7 +150,7 @@ class PaymentController extends Controller
 
         // Call Chargily Pay v2 API
         $response = Http::withToken(config('services.chargily.secret_key'))
-            ->post(self::CHARGILY_API . '/checkouts', [
+            ->post($this->getChargilyApiUrl() . '/checkouts', [
                 'amount'          => $amount,
                 'currency'        => 'dzd',
                 'success_url'     => $successUrl,
