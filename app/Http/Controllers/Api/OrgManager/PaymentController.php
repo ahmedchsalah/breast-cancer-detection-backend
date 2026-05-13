@@ -145,8 +145,11 @@ class PaymentController extends Controller
             : rtrim($appUrl, '/') . '/api/payment/webhook';
 
         try {
+            // Defensively clean the API key (remove quotes/spaces if added accidentally in .env)
+            $apiKey = trim(config('services.chargily.secret_key'), " \"'");
+
             // Call Chargily Pay v2 API
-            $response = Http::withToken(config('services.chargily.secret_key'))
+            $response = Http::withToken($apiKey)
                 ->timeout(10) // Prevent hanging
                 ->post($this->getChargilyApiUrl() . '/checkouts', [
                     'amount'          => $amount,
