@@ -39,6 +39,12 @@ class ChargilyWebhookController extends Controller
         $signature = $request->header('signature');
         $payload   = $request->getContent(); // raw body — must not be parsed yet
 
+        Log::info('Chargily Webhook Hit', [
+            'has_signature' => !empty($signature),
+            'payload_length' => strlen($payload),
+            'url' => $request->fullUrl()
+        ]);
+
         if (empty($signature)) {
             Log::warning('Chargily webhook: missing signature header.');
             return response('Missing signature.', 400);
