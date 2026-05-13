@@ -144,9 +144,10 @@ class PaymentController extends Controller
         $amount   = (int) round($discountedPrice * 100); // Chargily V2 expects centimes (amount * 100)
 
         // Build callback URLs
-        $successUrl = config('app.frontend_url') . '/payment/success';
-        $failureUrl = config('app.frontend_url') . '/payment/failure';
-        $webhookUrl = url('/api/payment/webhook'); // Our public webhook endpoint
+        $frontendUrl = rtrim(config('app.frontend_url', 'https://brecai-tester.vercel.app'), '/');
+        $successUrl  = $frontendUrl . '/payment/success';
+        $failureUrl  = $frontendUrl . '/payment/failure';
+        $webhookUrl  = config('app.url') . '/api/payment/webhook'; // fallback in case url() helper returns local
 
         // Call Chargily Pay v2 API
         $response = Http::withToken(config('services.chargily.secret_key'))
@@ -168,30 +169,44 @@ class PaymentController extends Controller
 
         if (!$response->successful()) {
             Log::error('Chargily checkout creation failed', [
-                'status'   => $response->status(),
-                'body'     => $response->body(),
-                'org_id'   => $org->id,
-                'plan_id'  => $plan->id,
+                'http_status'     => $response->status(),
+                'chargily_body'   => $response->body(),   // ← full Chargily error detail
+                'chargily_json'   => $response->json(),
+                'success_url'     => $successUrl,
+                'failure_url'     => $failureUrl,
+                'webhook_url'     => $webhookUrl,
+                'amount_centimes' => $amount,
+                'org_id'          => $org->id,
+                'plan_id'         => $plan->id,
             ]);
 
             return response()->json([
                 'message' => 'Failed to initiate payment. Please try again later.',
-                'error'   => $response->json('message') ?? 'Unknown error from payment gateway.',
+                'error'   => $response->json('message') ?? $response->body() ?? 'Unknown error from payment gateway.',
             ], 502);
         }
 
         $checkout = $response->json();
 
         // Persist a pending payment record immediately
+        // Store amount in DZD (human-readable) — NOT in centimes
         $payment = Payment::create([
-            'organization_id'     => $org->id,
-            'plan_id'             => $plan->id,
-            'amount'              => $amount,
-            'currency'            => 'DZD',
-            'status'              => 'pending',
-            'chargily_checkout_id'=> $checkout['id'],
-            'checkout_url'        => $checkout['checkout_url'],
-            'duration_months'     => $months,
+            'organization_id'      => $org->id,
+            'plan_id'              => $plan->id,
+            'amount'               => $discountedPrice, // DZD, not centimes
+            'currency'             => 'DZD',
+            'status'               => 'pending',
+            'chargily_checkout_id' => $checkout['id'],
+            'checkout_url'         => $checkout['checkout_url'],
+            'duration_months'      => $months,
+        ]);
+
+        Log::info('Chargily checkout created', [
+            'payment_id'    => $payment->id,
+            'checkout_id'   => $checkout['id'],
+            'checkout_url'  => $checkout['checkout_url'],
+            'amount_dzd'    => $discountedPrice,
+            'amount_centimes' => $amount,
         ]);
 
         return response()->json([

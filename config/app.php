@@ -52,7 +52,10 @@ return [
     |
     */
 
-    'url' => env('APP_URL', 'http://localhost'),
+    'url'          => env('APP_URL', 'http://localhost'),
+
+    // Frontend SPA URL — used for Chargily payment redirect callbacks
+    'frontend_url' => env('FRONTEND_URL', 'https://brecai-tester.vercel.app'),
 
     /*
     |--------------------------------------------------------------------------
