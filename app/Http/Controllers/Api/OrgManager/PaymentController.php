@@ -192,7 +192,7 @@ class PaymentController extends Controller
                 return response()->json([
                     'message' => 'Failed to initiate payment. Please try again later.',
                     'error'   => $response->json('message') ?? $response->json('error') ?? $response->body() ?? 'Gateway rejection.',
-                ], 502);
+                ], 422); // Use 422 instead of 502 to ensure proxy doesn't swallow the JSON body
             }
         } catch (\Exception $e) {
             Log::error('Critical failure in PaymentController', [
@@ -202,7 +202,7 @@ class PaymentController extends Controller
             return response()->json([
                 'message' => 'Internal server error while connecting to payment gateway.',
                 'error'   => $e->getMessage()
-            ], 500);
+            ], 422); // Use 422 for stability
         }
 
         $checkout = $response->json();
