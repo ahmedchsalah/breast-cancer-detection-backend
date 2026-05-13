@@ -142,7 +142,7 @@ class PaymentController extends Controller
         }
 
         $discountedPrice = $plan->price * $months * (1 - $discountPercent);
-        $amount   = (int) round($discountedPrice * 100); // Chargily V2 expects centimes (amount * 100)
+        $amount   = (float) $discountedPrice; // Chargily V2 uses standard DZD units, not centimes
 
         // Build callback URLs
         $frontendUrl = rtrim(config('app.frontend_url', 'https://brecai-tester.vercel.app'), '/');
@@ -179,6 +179,15 @@ class PaymentController extends Controller
                     'currency'        => 'dzd',
                     'success_url'     => $successUrl,
                     'failure_url'     => $failureUrl,
+                    'locale'          => 'ar',
+                    'description'     => "Payment for {$plan->name} Subscription",
+                    'metadata'        => [
+                        [
+                            'org_id'   => (string) $org->id,
+                            'plan_id'  => (string) $plan->id,
+                            'months'   => (string) $months,
+                        ]
+                    ],
                 ]);
 
             if (!$response->successful()) {

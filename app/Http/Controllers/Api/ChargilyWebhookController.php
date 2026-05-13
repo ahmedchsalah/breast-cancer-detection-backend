@@ -44,7 +44,7 @@ class ChargilyWebhookController extends Controller
             return response('Missing signature.', 400);
         }
 
-        $secretKey         = config('services.chargily.secret_key');
+        $secretKey         = trim(env('CHARGILY_SECRET_KEY'), " \"'");
         $computedSignature = hash_hmac('sha256', $payload, $secretKey);
 
         if (!hash_equals($signature, $computedSignature)) {
@@ -82,7 +82,10 @@ class ChargilyWebhookController extends Controller
     private function handlePaid(array $checkout): void
     {
         $chargilyCheckoutId = $checkout['id'];
-        $metadata           = $checkout['metadata'] ?? [];
+        
+        // Metadata is a nested array in V2: [ { "org_id": "...", ... } ]
+        $rawMetadata = $checkout['metadata'] ?? [];
+        $metadata = (isset($rawMetadata[0]) && is_array($rawMetadata[0])) ? $rawMetadata[0] : $rawMetadata;
 
         $payment = Payment::where('chargily_checkout_id', $chargilyCheckoutId)->first();
 
@@ -96,10 +99,10 @@ class ChargilyWebhookController extends Controller
             return;
         }
 
-        // Extract info from metadata (we passed this when creating the checkout)
-        $organizationId = $metadata['organization_id'] ?? $payment->organization_id;
-        $planId         = $metadata['plan_id']         ?? $payment->plan_id;
-        $durationMonths = $metadata['duration_months'] ?? $payment->duration_months ?? 1;
+        // Extract info from metadata with correct keys
+        $organizationId = $metadata['org_id']  ?? $payment->organization_id;
+        $planId         = $metadata['plan_id'] ?? $payment->plan_id;
+        $durationMonths = $metadata['months']  ?? $payment->duration_months ?? 1;
 
         $startsAt = Carbon::now();
         $endsAt   = $startsAt->copy()->addMonths((int) $durationMonths);
