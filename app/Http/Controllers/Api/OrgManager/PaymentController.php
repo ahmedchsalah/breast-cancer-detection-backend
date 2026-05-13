@@ -25,7 +25,7 @@ use OpenApi\Attributes as OA;
         new OA\Property(property: "max_predictions_per_month", type: "integer", nullable: true),
         new OA\Property(property: "is_active", type: "boolean"),
     ]
-)]
+ )]
 #[OA\Schema(
     schema: "PaymentObject",
     type: "object",
@@ -41,7 +41,7 @@ use OpenApi\Attributes as OA;
         new OA\Property(property: "duration_months", type: "integer", nullable: true),
         new OA\Property(property: "created_at", type: "string", format: "date-time"),
     ]
-)]
+ )]
 class PaymentController extends Controller
 {
     private function getChargilyApiUrl()
@@ -103,17 +103,7 @@ class PaymentController extends Controller
             )
         ),
         responses: [
-            new OA\Response(
-                response: 201,
-                description: "Checkout created",
-                content: new OA\JsonContent(
-                    properties: [
-                        new OA\Property(property: "message", type: "string"),
-                        new OA\Property(property: "checkout_url", type: "string"),
-                        new OA\Property(property: "payment_id", type: "integer"),
-                    ]
-                )
-            ),
+            new OA\Response(response: 201, description: "Checkout created"),
             new OA\Response(response: 502, description: "Failed to initiate payment gateway"),
             new OA\Response(response: 422, description: "Validation error"),
         ]
@@ -147,43 +137,58 @@ class PaymentController extends Controller
         $frontendUrl = rtrim(config('app.frontend_url', 'https://brecai-tester.vercel.app'), '/');
         $successUrl  = $frontendUrl . '/payment/success';
         $failureUrl  = $frontendUrl . '/payment/failure';
-        $webhookUrl  = config('app.url') . '/api/payment/webhook'; // fallback in case url() helper returns local
+        
+        // Ensure webhook URL is absolute and not localhost if possible
+        $appUrl = config('app.url');
+        $webhookUrl = (str_contains($appUrl, 'localhost') || !str_starts_with($appUrl, 'http'))
+            ? null // If URL is invalid, let Chargily use the dashboard default
+            : rtrim($appUrl, '/') . '/api/payment/webhook';
 
-        // Call Chargily Pay v2 API
-        $response = Http::withToken(config('services.chargily.secret_key'))
-            ->post($this->getChargilyApiUrl() . '/checkouts', [
-                'amount'          => $amount,
-                'currency'        => 'dzd',
-                'success_url'     => $successUrl,
-                'failure_url'     => $failureUrl,
-                'webhook_endpoint'=> $webhookUrl,
-                'locale'          => 'ar',
-                'description'     => "Subscription: {$plan->name} — {$months} month(s) — {$org->name}",
-                'metadata'        => [
-                    'organization_id' => $org->id,
-                    'plan_id'         => $plan->id,
-                    'duration_months' => $months,
-                    'user_id'         => $user->id,
-                ],
+        try {
+            // Call Chargily Pay v2 API
+            $response = Http::withToken(config('services.chargily.secret_key'))
+                ->timeout(10) // Prevent hanging
+                ->post($this->getChargilyApiUrl() . '/checkouts', [
+                    'amount'          => $amount,
+                    'currency'        => 'dzd',
+                    'success_url'     => $successUrl,
+                    'failure_url'     => $failureUrl,
+                    'webhook_endpoint'=> $webhookUrl,
+                    'locale'          => 'ar',
+                    'description'     => "Subscription: {$plan->name} — {$months} month(s) — {$org->name}",
+                    'metadata'        => [
+                        'organization_id' => (string) $org->id, // MUST be strings for Chargily V2
+                        'plan_id'         => (string) $plan->id,
+                        'duration_months' => (string) $months,
+                        'user_id'         => (string) $user->id,
+                    ],
+                ]);
+
+            if (!$response->successful()) {
+                Log::error('Chargily checkout creation failed', [
+                    'http_status'     => $response->status(),
+                    'chargily_body'   => $response->body(),
+                    'webhook_url'     => $webhookUrl,
+                    'metadata'        => [
+                        'org_id' => $org->id,
+                        'plan_id' => $plan->id,
+                    ]
+                ]);
+
+                return response()->json([
+                    'message' => 'Failed to initiate payment. Please try again later.',
+                    'error'   => $response->json('message') ?? $response->json('error') ?? $response->body() ?? 'Gateway rejection.',
+                ], 502);
+            }
+        } catch (\Exception $e) {
+            Log::error('Critical failure in PaymentController', [
+                'message' => $e->getMessage(),
+                'trace'   => $e->getTraceAsString()
             ]);
-
-        if (!$response->successful()) {
-            Log::error('Chargily checkout creation failed', [
-                'http_status'     => $response->status(),
-                'chargily_body'   => $response->body(),   // ← full Chargily error detail
-                'chargily_json'   => $response->json(),
-                'success_url'     => $successUrl,
-                'failure_url'     => $failureUrl,
-                'webhook_url'     => $webhookUrl,
-                'amount_centimes' => $amount,
-                'org_id'          => $org->id,
-                'plan_id'         => $plan->id,
-            ]);
-
             return response()->json([
-                'message' => 'Failed to initiate payment. Please try again later.',
-                'error'   => $response->json('message') ?? $response->body() ?? 'Unknown error from payment gateway.',
-            ], 502);
+                'message' => 'Internal server error while connecting to payment gateway.',
+                'error'   => $e->getMessage()
+            ], 500);
         }
 
         $checkout = $response->json();
