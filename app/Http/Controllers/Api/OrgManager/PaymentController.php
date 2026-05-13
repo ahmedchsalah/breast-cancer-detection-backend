@@ -179,15 +179,6 @@ class PaymentController extends Controller
                     'currency'        => 'dzd',
                     'success_url'     => $successUrl,
                     'failure_url'     => $failureUrl,
-                    'locale'          => 'ar',
-                    'description'     => "Payment for {$plan->name} Subscription",
-                    'metadata'        => [
-                        [
-                            'org_id'   => (string) $org->id,
-                            'plan_id'  => (string) $plan->id,
-                            'months'   => (string) $months,
-                        ]
-                    ],
                 ]);
 
             if (!$response->successful()) {
