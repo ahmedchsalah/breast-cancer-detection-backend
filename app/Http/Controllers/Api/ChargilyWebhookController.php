@@ -83,14 +83,19 @@ class ChargilyWebhookController extends Controller
     {
         $chargilyCheckoutId = $checkout['id'];
         
-        // Metadata is a nested array in V2: [ { "org_id": "...", ... } ]
+        // Metadata in V2 is tricky. Let's be very defensive.
         $rawMetadata = $checkout['metadata'] ?? [];
-        $metadata = (isset($rawMetadata[0]) && is_array($rawMetadata[0])) ? $rawMetadata[0] : $rawMetadata;
+        $metadata = [];
+        
+        if (is_array($rawMetadata)) {
+            // If it's the nested format: [ { "key": "value" } ]
+            $metadata = (isset($rawMetadata[0]) && is_array($rawMetadata[0])) ? $rawMetadata[0] : $rawMetadata;
+        }
 
         $payment = Payment::where('chargily_checkout_id', $chargilyCheckoutId)->first();
 
         if (!$payment) {
-            Log::error("Chargily webhook: no payment found for checkout_id {$chargilyCheckoutId}");
+            Log::error("Chargily webhook: no payment found in DB for checkout_id {$chargilyCheckoutId}");
             return;
         }
 
@@ -99,39 +104,60 @@ class ChargilyWebhookController extends Controller
             return;
         }
 
-        // Extract info from metadata with correct keys
-        $organizationId = $metadata['org_id']  ?? $payment->organization_id;
-        $planId         = $metadata['plan_id'] ?? $payment->plan_id;
-        $durationMonths = $metadata['months']  ?? $payment->duration_months ?? 1;
+        try {
+            // Extract info from metadata with fallbacks to the payment record
+            $organizationId = $metadata['org_id']  ?? $payment->organization_id;
+            $planId         = $metadata['plan_id'] ?? $payment->plan_id;
+            $durationMonths = $metadata['months']  ?? $payment->duration_months ?? 1;
 
-        $startsAt = Carbon::now();
-        $endsAt   = $startsAt->copy()->addMonths((int) $durationMonths);
+            $now    = Carbon::now();
+            $endsAt = $now->copy()->addMonths((int) $durationMonths);
 
-        // Create an active subscription record
-        $subscription = Subscription::create([
-            'organization_id' => $organizationId,
-            'plan_id'         => $planId,
-            'status'          => 'active',
-            'starts_at'       => $startsAt,
-            'ends_at'         => $endsAt,
-        ]);
+            Log::info("Chargily Webhook: Activating subscription", [
+                'org_id' => $organizationId,
+                'plan_id' => $planId,
+                'months' => $durationMonths
+            ]);
 
-        // Mark payment as completed and link to subscription
-        $payment->update([
-            'status'          => 'completed',
-            'transaction_id'  => $checkout['invoice_id'] ?? $chargilyCheckoutId,
-            'payment_method'  => $checkout['payment_method'] ?? null,
-            'subscription_id' => $subscription->id,
-        ]);
+            // Create an active subscription record
+            $subscription = Subscription::create([
+                'organization_id' => (int) $organizationId,
+                'plan_id'         => (int) $planId,
+                'status'          => 'active',
+                'starts_at'       => $now->toDateTimeString(),
+                'ends_at'         => $endsAt->toDateTimeString(),
+            ]);
 
-        // Update the organization's subscription cache fields
-        Organization::where('id', $organizationId)->update([
-            'plan_id'               => $planId,
-            'subscription_status'   => 'active',
-            'subscription_ends_at'  => $endsAt->toDateString(),
-        ]);
+            // Capture payment method with fallbacks
+            $paymentMethod = $checkout['payment_method'] 
+                          ?? $checkout['payment_method_id'] 
+                          ?? $checkout['payment_type'] 
+                          ?? 'unknown';
 
-        Log::info("Chargily webhook: subscription activated for org {$organizationId}, ends {$endsAt}.");
+            // Mark payment as completed and link to subscription
+            $payment->update([
+                'status'          => 'completed',
+                'transaction_id'  => $checkout['invoice_id'] ?? $chargilyCheckoutId,
+                'payment_method'  => $paymentMethod,
+                'subscription_id' => $subscription->id,
+            ]);
+
+            // Update the organization's subscription cache fields
+            Organization::where('id', $organizationId)->update([
+                'plan_id'               => (int) $planId,
+                'subscription_status'   => 'active',
+                'subscription_ends_at'  => $endsAt->toDateString(),
+            ]);
+
+            Log::info("Chargily webhook: subscription SUCCESS for org {$organizationId}");
+
+        } catch (\Exception $e) {
+            Log::error("Chargily webhook: CRITICAL FAILURE during subscription creation", [
+                'error'   => $e->getMessage(),
+                'org_id'  => $organizationId ?? 'unknown',
+                'payment_id' => $payment->id
+            ]);
+        }
     }
 
     // ─────────────────────────────────────────────────────────────────────────

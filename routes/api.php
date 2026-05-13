@@ -150,7 +150,8 @@ Route::middleware('auth:sanctum')->group(function () {
         Route::get('plans',                [PaymentController::class, 'plans']);             // Available plans
         Route::post('subscribe',           [PaymentController::class, 'subscribe']);         // Initiate Chargily checkout
         Route::get('payments',             [PaymentController::class, 'history']);           // Payment history
-        Route::get('subscription',         [PaymentController::class, 'currentSubscription']); // Current sub status
+        Route::get('subscription',         [PaymentController::class, 'currentSubscription']); 
+        Route::get('subscription-status',  [PaymentController::class, 'status']);
     });
 
     // ─────────────────────────────────────────────────────────────────────────

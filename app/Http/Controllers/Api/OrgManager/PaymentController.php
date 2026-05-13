@@ -329,4 +329,11 @@ class PaymentController extends Controller
             'subscription' => $subscription,
         ]);
     }
+
+    public function status(): JsonResponse
+    {
+        return response()->json([
+            'status' => auth()->user()->organization->subscription_status,
+        ]);
+    }
 }
