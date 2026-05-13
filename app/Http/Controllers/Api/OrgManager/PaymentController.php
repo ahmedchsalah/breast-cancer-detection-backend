@@ -179,7 +179,6 @@ class PaymentController extends Controller
                     'currency'        => 'dzd',
                     'success_url'     => $successUrl,
                     'failure_url'     => $failureUrl,
-                    'webhook_url'     => $webhookUrl,
                     'locale'          => 'ar',
                     'description'     => "Payment for {$plan->name} Subscription",
                     'metadata'        => [
