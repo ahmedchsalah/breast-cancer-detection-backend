@@ -158,6 +158,14 @@ class PaymentController extends Controller
         try {
             // Defensively clean the API key (remove quotes/spaces if added accidentally in .env)
             $apiKey = trim(config('services.chargily.secret_key'), " \"'");
+            $mode   = config('services.chargily.mode');
+
+            Log::debug('Chargily Connection Debug', [
+                'mode' => $mode,
+                'key_prefix' => substr($apiKey, 0, 8),
+                'key_suffix' => substr($apiKey, -4),
+                'url' => $this->getChargilyApiUrl()
+            ]);
 
             // Call Chargily Pay v2 API
             $response = Http::withToken($apiKey)
