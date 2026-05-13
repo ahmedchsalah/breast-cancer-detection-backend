@@ -110,8 +110,19 @@ class PaymentController extends Controller
     )]
     public function subscribe(Request $request): JsonResponse
     {
+        Log::info('Payment Subscribe Attempt Started', [
+            'user_id' => auth()->id(),
+            'plan_id' => $request->plan_id,
+            'duration' => $request->duration_months
+        ]);
+
         $user = auth()->user();
         $org  = $this->org();
+
+        if (!$org) {
+            Log::error('Payment failed: User has no organization', ['user_id' => $user->id]);
+            return response()->json(['message' => 'Your account is not associated with an organization.'], 422);
+        }
 
         $validated = $request->validate([
             'plan_id'         => 'required|integer|exists:plans,id',
