@@ -181,11 +181,7 @@ class PaymentController extends Controller
                     'failure_url'     => $failureUrl,
                     'locale'          => 'ar',
                     'description'     => "Payment for {$plan->name} Subscription",
-                    'metadata'        => [
-                        'org_id'   => (string) $org->id,
-                        'plan_id'  => (string) $plan->id,
-                        'months'   => (string) $months,
-                    ],
+                    'metadata'        => null,
                 ]);
 
             if (!$response->successful()) {
@@ -289,4 +285,42 @@ class PaymentController extends Controller
         security: [["sanctum" => []]],
         responses: [
             new OA\Response(
-                response: 200, description: "Current subscription details", content: new OA\JsonContent( properties: [ new OA\Property(property: "organization", type: "object", properties: [ new OA\Property(property: "id", type: "integer"), new OA\Property(property: "name", type: "string"), new OA\Property(property: "subscription_status", type: "string"), new OA\Property(property: "subscription_ends_at", type: "string", format: "date", nullable: true), ]), new OA\Property(property: "plan", ref: "#/components/schemas/PlanObject"), new OA\Property(property: "subscription", type: "object", nullable: true), ] ) ) ] )] public function currentSubscription(): JsonResponse { $org = auth()->user()->organization()->with('plan')->first(); $subscription = Subscription::where('organization_id', $org->id) ->whereIn('status', ['active', 'trialing']) ->with('plan') ->latest() ->first(); return response()->json([ 'organization' => [ 'id' => $org->id, 'name' => $org->name, 'subscription_status' => $org->subscription_status, 'subscription_ends_at' => $org->subscription_ends_at, ], 'plan' => $org->plan, 'subscription' => $subscription, ]); } } 
+                response: 200,
+                description: "Current subscription details",
+                content: new OA\JsonContent(
+                    properties: [
+                        new OA\Property(property: "organization", type: "object", properties: [
+                            new OA\Property(property: "id", type: "integer"),
+                            new OA\Property(property: "name", type: "string"),
+                            new OA\Property(property: "subscription_status", type: "string"),
+                            new OA\Property(property: "subscription_ends_at", type: "string", format: "date", nullable: true),
+                        ]),
+                        new OA\Property(property: "plan", ref: "#/components/schemas/PlanObject"),
+                        new OA\Property(property: "subscription", type: "object", nullable: true),
+                    ]
+                )
+            )
+        ]
+    )]
+    public function currentSubscription(): JsonResponse
+    {
+        $org = auth()->user()->organization()->with('plan')->first();
+
+        $subscription = Subscription::where('organization_id', $org->id)
+            ->whereIn('status', ['active', 'trialing'])
+            ->with('plan')
+            ->latest()
+            ->first();
+
+        return response()->json([
+            'organization'  => [
+                'id'                   => $org->id,
+                'name'                 => $org->name,
+                'subscription_status'  => $org->subscription_status,
+                'subscription_ends_at' => $org->subscription_ends_at,
+            ],
+            'plan'         => $org->plan,
+            'subscription' => $subscription,
+        ]);
+    }
+}
