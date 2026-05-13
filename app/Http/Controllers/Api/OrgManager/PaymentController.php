@@ -159,18 +159,20 @@ class PaymentController extends Controller
             // DIRECTLY read from env to bypass any stuck config cache
             $apiKey = trim(env('CHARGILY_SECRET_KEY'), " \"'");
             $mode   = env('CHARGILY_MODE', 'test');
+            $apiUrl = ($mode === 'test' ? 'https://pay.chargily.net/test/api/v2' : 'https://pay.chargily.net/api/v2');
 
             Log::debug('Chargily Connection Debug (Direct Env)', [
                 'mode' => $mode,
                 'key_prefix' => substr($apiKey, 0, 8),
                 'key_suffix' => substr($apiKey, -4),
-                'url' => ($mode === 'test' ? 'https://pay.chargily.net/test/api/v2' : 'https://pay.chargily.net/api/v2')
+                'apiUrl' => $apiUrl
             ]);
 
-            $apiUrl = ($mode === 'test' ? 'https://pay.chargily.net/test/api/v2' : 'https://pay.chargily.net/api/v2');
-
-            // Call Chargily Pay v2 API
-            $response = Http::withToken($apiKey)
+            // Call Chargily Pay v2 API with explicit headers
+            $response = Http::withHeaders([
+                    'Authorization' => 'Bearer ' . $apiKey,
+                    'Accept' => 'application/json',
+                ])
                 ->timeout(10)
                 ->post($apiUrl . '/checkouts', [
                     'amount'          => $amount,
