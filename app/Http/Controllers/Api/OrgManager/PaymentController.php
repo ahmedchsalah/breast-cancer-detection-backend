@@ -156,21 +156,23 @@ class PaymentController extends Controller
             : rtrim($appUrl, '/') . '/api/payment/webhook';
 
         try {
-            // Defensively clean the API key (remove quotes/spaces if added accidentally in .env)
-            $apiKey = trim(config('services.chargily.secret_key'), " \"'");
-            $mode   = config('services.chargily.mode');
+            // DIRECTLY read from env to bypass any stuck config cache
+            $apiKey = trim(env('CHARGILY_SECRET_KEY'), " \"'");
+            $mode   = env('CHARGILY_MODE', 'test');
 
-            Log::debug('Chargily Connection Debug', [
+            Log::debug('Chargily Connection Debug (Direct Env)', [
                 'mode' => $mode,
                 'key_prefix' => substr($apiKey, 0, 8),
                 'key_suffix' => substr($apiKey, -4),
-                'url' => $this->getChargilyApiUrl()
+                'url' => ($mode === 'test' ? 'https://pay.chargily.net/test/api/v2' : 'https://pay.chargily.net/api/v2')
             ]);
+
+            $apiUrl = ($mode === 'test' ? 'https://pay.chargily.net/test/api/v2' : 'https://pay.chargily.net/api/v2');
 
             // Call Chargily Pay v2 API
             $response = Http::withToken($apiKey)
-                ->timeout(10) // Prevent hanging
-                ->post($this->getChargilyApiUrl() . '/checkouts', [
+                ->timeout(10)
+                ->post($apiUrl . '/checkouts', [
                     'amount'          => $amount,
                     'currency'        => 'dzd',
                     'success_url'     => $successUrl,
