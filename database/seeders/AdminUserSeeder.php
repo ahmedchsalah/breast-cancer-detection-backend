@@ -15,7 +15,7 @@ class AdminUserSeeder extends Seeder
     public function run(): void
     {
         // 1. Ensure the 'admin' role exists (Spatie Permission)
-        $adminRole = Role::firstOrCreate(['name' => 'admin']);
+        $adminRole = Role::firstOrCreate(['name' => 'admin', 'guard_name' => 'web']);
 
         // 2. Create the Admin User
         // You can change these credentials before running the seeder
