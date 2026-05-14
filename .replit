@@ -1,0 +1,58 @@
+modules = ["php-8.2", "nodejs-20", "web"]
+[agent]
+expertMode = true
+stack = "BEST_EFFORT_FALLBACK"
+
+[nix]
+channel = "stable-25_05"
+
+[userenv]
+
+[userenv.shared]
+APP_NAME = "LumA"
+APP_ENV = "local"
+APP_DEBUG = "true"
+APP_URL = "http://localhost:5000"
+DB_CONNECTION = "pgsql"
+SESSION_DRIVER = "database"
+SESSION_LIFETIME = "120"
+QUEUE_CONNECTION = "database"
+CACHE_STORE = "database"
+BROADCAST_CONNECTION = "log"
+FILESYSTEM_DISK = "local"
+MAIL_MAILER = "log"
+LOG_CHANNEL = "stack"
+LOG_LEVEL = "debug"
+BCRYPT_ROUNDS = "12"
+
+[workflows]
+runButton = "Project"
+
+[[workflows.workflow]]
+name = "Project"
+mode = "parallel"
+author = "agent"
+
+[[workflows.workflow.tasks]]
+task = "workflow.run"
+args = "Start application"
+
+[[workflows.workflow]]
+name = "Start application"
+author = "agent"
+
+[[workflows.workflow.tasks]]
+task = "shell.exec"
+args = "php artisan serve --host=0.0.0.0 --port=5000"
+waitForPort = 5000
+
+[workflows.workflow.metadata]
+outputType = "webview"
+
+[[ports]]
+localPort = 5000
+externalPort = 80
+
+[deployment]
+deploymentTarget = "autoscale"
+run = ["php", "artisan", "serve", "--host=0.0.0.0", "--port=5000"]

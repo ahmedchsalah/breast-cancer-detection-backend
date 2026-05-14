@@ -6,32 +6,28 @@ use Illuminate\Support\Facades\Schema;
 
 return new class extends Migration
 {
-    /**
-     * Run the migrations.
-     */
     public function up(): void
     {
-        Schema::create('examinations', function (Blueprint $table) {
-            $table->id();
-            $table->foreignId('patient_id')->constrained()->cascadeOnDelete();
-            $table->foreignId('doctor_id')->constrained('users')->cascadeOnDelete();
-            $table->foreignId('organization_id')->constrained()->cascadeOnDelete();
+        if (!Schema::hasTable('examinations')) {
+            Schema::create('examinations', function (Blueprint $table) {
+                $table->id();
+                $table->foreignId('patient_id')->constrained()->cascadeOnDelete();
+                $table->foreignId('doctor_id')->constrained('users')->cascadeOnDelete();
+                $table->foreignId('organization_id')->constrained()->cascadeOnDelete();
 
-            $table->text('chief_complaint')->nullable();
-            $table->text('clinical_notes')->nullable();
-            $table->text('doctor_conclusion')->nullable();
+                $table->text('chief_complaint')->nullable();
+                $table->text('clinical_notes')->nullable();
+                $table->text('doctor_conclusion')->nullable();
 
-            $table->enum('status', ['draft', 'submitted', 'predicted', 'concluded'])
-                ->default('draft');
+                $table->enum('status', ['draft', 'submitted', 'predicted', 'concluded'])
+                    ->default('draft');
 
-            $table->timestamp('examined_at')->nullable();
-            $table->timestamps();
-        });
+                $table->timestamp('examined_at')->nullable();
+                $table->timestamps();
+            });
+        }
     }
 
-    /**
-     * Reverse the migrations.
-     */
     public function down(): void
     {
         Schema::dropIfExists('examinations');

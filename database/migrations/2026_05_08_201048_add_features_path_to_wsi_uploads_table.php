@@ -6,20 +6,16 @@ use Illuminate\Support\Facades\Schema;
 
 return new class extends Migration
 {
-    /**
-     * Add features_path to wsi_uploads table.
-     *
-     * This column stores the local storage path to the pre-extracted
-     * CONCH feature .pt file for a given WSI slide.
-     * When populated, DispatchPredictionJob will use /predict/a6 (full fusion).
-     * When NULL, the job falls back to /predict/clinical.
-     */
     public function up(): void
     {
         Schema::table('wsi_uploads', function (Blueprint $table) {
-            $table->string('features_path')->nullable()->after('status')
-                  ->comment('Path to pre-extracted CONCH feature .pt file (512-dim, float16)');
-            $table->timestamp('features_extracted_at')->nullable()->after('features_path');
+            if (!Schema::hasColumn('wsi_uploads', 'features_path')) {
+                $table->string('features_path')->nullable()->after('status')
+                      ->comment('Path to pre-extracted CONCH feature .pt file');
+            }
+            if (!Schema::hasColumn('wsi_uploads', 'features_extracted_at')) {
+                $table->timestamp('features_extracted_at')->nullable()->after('features_path');
+            }
         });
     }
 

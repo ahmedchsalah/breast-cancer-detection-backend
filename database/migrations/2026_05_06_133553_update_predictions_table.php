@@ -8,36 +8,31 @@ return new class extends Migration
 {
     public function up(): void
     {
-        // Drop old predictions table (had wrong columns from initial migration) and recreate
-        Schema::dropIfExists('predictions');
+        if (!Schema::hasTable('predictions')) {
+            Schema::create('predictions', function (Blueprint $table) {
+                $table->id();
+                $table->foreignId('examination_id')->constrained()->cascadeOnDelete();
+                $table->foreignId('patient_id')->constrained()->cascadeOnDelete();
+                $table->foreignId('ai_model_id')->constrained()->cascadeOnDelete();
+                $table->foreignId('wsi_upload_id')->nullable()->constrained()->nullOnDelete();
 
-        Schema::create('predictions', function (Blueprint $table) {
-            $table->id();
-            $table->foreignId('examination_id')->constrained()->cascadeOnDelete();
-            $table->foreignId('patient_id')->constrained()->cascadeOnDelete();
-            $table->foreignId('ai_model_id')->constrained()->cascadeOnDelete();
-            $table->foreignId('wsi_upload_id')->nullable()->constrained()->nullOnDelete();
+                $table->boolean('is_lum_a')->nullable();
+                $table->float('confidence_lum_a')->nullable();
+                $table->float('confidence_non_lum_a')->nullable();
 
-            // Binary result
-            $table->boolean('is_lum_a')->nullable();
-            $table->float('confidence_lum_a')->nullable();
-            $table->float('confidence_non_lum_a')->nullable();
+                $table->json('clinical_input_snapshot')->nullable();
 
-            // Snapshot of clinical input sent to FastAPI
-            $table->json('clinical_input_snapshot')->nullable();
+                $table->enum('status', ['pending', 'processing', 'completed', 'failed'])
+                    ->default('pending');
+                $table->string('job_id')->nullable()->unique();
+                $table->text('failure_reason')->nullable();
+                $table->timestamp('completed_at')->nullable();
 
-            // FastAPI job tracking
-            $table->enum('status', ['pending', 'processing', 'completed', 'failed'])
-                ->default('pending');
-            $table->string('job_id')->nullable()->unique();
-            $table->text('failure_reason')->nullable();
-            $table->timestamp('completed_at')->nullable();
+                $table->foreignId('organization_id')->nullable()->constrained()->nullOnDelete();
 
-            // Organisation scoping
-            $table->foreignId('organization_id')->nullable()->constrained()->nullOnDelete();
-
-            $table->timestamps();
-        });
+                $table->timestamps();
+            });
+        }
     }
 
     public function down(): void
