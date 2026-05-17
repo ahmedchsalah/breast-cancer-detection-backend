@@ -146,6 +146,9 @@ Route::middleware('auth:sanctum')->group(function () {
         Route::get('reports',          [OrgReportController::class, 'index']);
         Route::get('reports/{report}', [OrgReportController::class, 'show']);
 
+        // AI Models (read-only — active models visible to org)
+        Route::get('ai-models',         [AiModelController::class, 'indexPublic']);
+
         // ── Plans & Payments ─────────────────────────────────────────────────
         Route::get('plans',                [PaymentController::class, 'plans']);             // Available plans
         Route::post('subscribe',           [PaymentController::class, 'subscribe']);         // Initiate Chargily checkout

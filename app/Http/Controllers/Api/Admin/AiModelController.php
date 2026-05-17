@@ -29,6 +29,19 @@ use OpenApi\Attributes as OA;
 class AiModelController extends Controller
 {
     // ============================================================
+    //  INDEX (Public — for org managers, read-only active models)
+    // ============================================================
+
+    public function indexPublic(): JsonResponse
+    {
+        $models = AiModel::where('is_active', true)
+            ->orderByDesc('created_at')
+            ->get();
+
+        return response()->json($models);
+    }
+
+    // ============================================================
     //  INDEX
     // ============================================================
 

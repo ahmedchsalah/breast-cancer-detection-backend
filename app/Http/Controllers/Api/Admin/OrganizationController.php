@@ -4,10 +4,13 @@ namespace App\Http\Controllers\Api\Admin;
 
 use App\Http\Controllers\Controller;
 use App\Models\Organization;
+use App\Models\User;
 use App\Http\Requests\Api\Organization\StoreOrganizationRequest;
 use App\Http\Requests\Api\Organization\UpdateOrganizationRequest;
+use App\Mail\OrgApprovedMail;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
+use Illuminate\Support\Facades\Mail;
 use OpenApi\Attributes as OA;
 
 #[OA\Schema(
@@ -235,7 +238,29 @@ class OrganizationController extends Controller
 
         $organization->update(['status' => Organization::STATUS_ACTIVE]);
 
-        return response()->json(['message' => 'Organization approved and activated.', 'organization' => $organization]);
+        // Auto-activate the org manager account(s) and send approval email
+        $managers = User::where('organization_id', $organization->id)
+            ->role('org_manager')
+            ->get();
+
+        foreach ($managers as $manager) {
+            if (!$manager->is_active) {
+                $manager->update(['is_active' => true]);
+            }
+
+            // Send approval notification email
+            try {
+                Mail::to($manager->email)->send(new OrgApprovedMail($manager, $organization));
+            } catch (\Exception $e) {
+                \Log::warning("OrgApprovedMail failed for {$manager->email}: " . $e->getMessage());
+            }
+        }
+
+        return response()->json([
+            'message'      => 'Organization approved, manager accounts activated, and notification emails sent.',
+            'organization' => $organization,
+            'activated'    => $managers->count(),
+        ]);
     }
 
     // ============================================================
