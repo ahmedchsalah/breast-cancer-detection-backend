@@ -4,10 +4,12 @@ namespace App\Http\Controllers\Api\OrgManager;
 
 use App\Http\Controllers\Controller;
 use App\Http\Resources\UserResource;
+use App\Mail\DoctorActivatedMail;
 use App\Models\User;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Hash;
+use Illuminate\Support\Facades\Mail;
 use OpenApi\Attributes as OA;
 
 class MemberController extends Controller
@@ -129,6 +131,16 @@ class MemberController extends Controller
         }
 
         $user->update(['is_active' => true]);
+
+        // Send activation email to the doctor
+        try {
+            $organization = $user->organization;
+            if ($organization) {
+                Mail::to($user->email)->send(new DoctorActivatedMail($user, $organization));
+            }
+        } catch (\Exception $e) {
+            \Log::warning("DoctorActivatedMail failed for {$user->email}: " . $e->getMessage());
+        }
 
         return response()->json(['message' => "Dr. {$user->name} has been approved and can now log in."]);
     }
