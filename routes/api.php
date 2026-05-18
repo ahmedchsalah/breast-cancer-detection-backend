@@ -35,6 +35,7 @@ use App\Http\Controllers\Api\Instructor\ContributionController;
 use App\Http\Controllers\Api\Internal\PredictionWebhookController;
 use App\Http\Controllers\Api\ChargilyWebhookController;
 use App\Http\Controllers\Api\OrgManager\PaymentController;
+use App\Http\Controllers\Api\OrgManager\InvitationController;
 
 // ─────────────────────────────────────────────────────────────────────────────
 // PUBLIC — No authentication required
@@ -45,6 +46,7 @@ Route::prefix('auth')->group(function () {
     Route::post('/login',         [AuthController::class, 'login']);
     Route::post('/send-otp',      [AuthController::class, 'sendOtp']);
     Route::post('/verify-otp',    [AuthController::class, 'verifyOtp']);
+    Route::get('/invitation/{token}', [AuthController::class, 'validateInvitation']); // Validate invitation token
 });
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -155,6 +157,11 @@ Route::middleware('auth:sanctum')->group(function () {
         Route::get('payments',             [PaymentController::class, 'history']);           // Payment history
         Route::get('subscription',         [PaymentController::class, 'currentSubscription']); 
         Route::get('subscription-status',  [PaymentController::class, 'status']);
+
+        // ── Invitations ───────────────────────────────────────────────────────
+        Route::get('invitations',                    [InvitationController::class, 'index']);
+        Route::post('invitations',                   [InvitationController::class, 'store']);
+        Route::delete('invitations/{invitation}',    [InvitationController::class, 'destroy']);
     });
 
     // ─────────────────────────────────────────────────────────────────────────

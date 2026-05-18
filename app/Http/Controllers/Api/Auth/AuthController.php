@@ -2,6 +2,7 @@
 
 namespace App\Http\Controllers\Api\Auth;
 
+use App\Models\Invitation;
 use App\Models\Organization;
 use App\Models\User;
 use App\Models\Otp;
@@ -195,6 +196,37 @@ class AuthController extends Controller
     )]
     public function register(RegisterRequest $request)
     {
+        // ── Invited user flow (invitation_token present) ──────────────────────
+        if ($request->filled('invitation_token')) {
+            $invitation = Invitation::where('token', $request->invitation_token)->first();
+
+            if (!$invitation || !$invitation->isValid()) {
+                return response()->json(['message' => 'Invalid or expired invitation token.'], 422);
+            }
+
+            $phone = $request->phone_number
+                ? $this->formatAlgerianPhoneNumber($request->phone_number)
+                : null;
+
+            $user = User::create([
+                'name'            => $request->name,
+                'email'           => $invitation->email, // use invitation email
+                'phone_number'    => $phone,
+                'password'        => Hash::make($request->password),
+                'organization_id' => $invitation->organization_id,
+                'is_active'       => true, // pre-approved via invitation
+            ]);
+
+            $user->assignRole($invitation->role);
+            $invitation->delete(); // consume the invitation
+
+            return response()->json([
+                'message'      => 'Registration successful. Please verify your identity via OTP.',
+                'email'        => $user->email,
+                'phone_number' => $user->phone_number,
+            ], 201);
+        }
+
         if ($request->role === 'doctor') {
             $org = Organization::find($request->organization_id);
 
@@ -419,16 +451,18 @@ class AuthController extends Controller
 
         // Handle register context
         if ($context === 'register') {
-            if ($user->hasRole('doctor')) {
+            if ($user->hasRole('doctor') && !$user->is_active) {
                 return response()->json([
                     'message' => 'Identity verified. Your account is awaiting approval by the Organization Manager.',
                     'reason'  => 'awaiting_org_approval',
                 ], 202);
             }
 
-            // org_manager: activate immediately
-            $user->is_active = true;
-            $user->save();
+            // org_manager or invited doctor/instructor (is_active=true): activate immediately
+            if (!$user->is_active) {
+                $user->is_active = true;
+                $user->save();
+            }
         }
 
         // Guard inactive users
@@ -515,6 +549,34 @@ class AuthController extends Controller
         return response()->json(
             new UserResource(auth()->user()->load(['roles', 'organization']))
         );
+    }
+
+    // ============================================================
+    //  VALIDATE INVITATION TOKEN — Public endpoint
+    // ============================================================
+
+    // GET /auth/invitation/{token}
+    public function validateInvitation(string $token): \Illuminate\Http\JsonResponse
+    {
+        $invitation = Invitation::where('token', $token)
+            ->with('organization:id,name,type')
+            ->first();
+
+        if (!$invitation) {
+            return response()->json(['message' => 'Invalid invitation link.', 'valid' => false], 404);
+        }
+
+        if (!$invitation->isValid()) {
+            return response()->json(['message' => 'This invitation has expired.', 'valid' => false], 410);
+        }
+
+        return response()->json([
+            'valid'        => true,
+            'email'        => $invitation->email,
+            'role'         => $invitation->role,
+            'organization' => $invitation->organization,
+            'expires_at'   => $invitation->expires_at,
+        ]);
     }
 
     // ============================================================

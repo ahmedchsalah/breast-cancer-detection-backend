@@ -24,10 +24,13 @@ class RegisterRequest extends FormRequest
         return [
             // 1. Basic User Fields
             'name' => ['required', 'string', 'max:255'],
-            'email' => ['required', 'email', 'unique:users,email'],
+            'email' => ['required_without:invitation_token', 'nullable', 'email', 'unique:users,email'],
             'password' => ['required', 'string', 'min:8'], // requires password_confirmation field
             'phone_number' => ['required', 'string', 'max:20', 'unique:users,phone_number'],
-            'role' => ['required', Rule::in(['org_manager', 'doctor'])],
+            'role' => ['required', Rule::in(['org_manager', 'doctor', 'instructor'])],
+
+            // Invitation token (optional — when present, overrides email/role/org)
+            'invitation_token' => ['nullable', 'string', 'exists:invitations,token'],
 
             // 2. Organization Manager Fields (Required if role is org_manager)
             'organization_name' => [
@@ -46,9 +49,10 @@ class RegisterRequest extends FormRequest
                 'in:clinic,hospital,laboratory,radiology_center' // <--- تم التحديث لتتطابق مع الـ Enum تماماً
             ],
 
-            // 3. Doctor Fields (Required if role is doctor)
+            // 3. Doctor Fields (Required if role is doctor and no invitation token)
             'organization_id' => [ // <--- تم تغييرها من code إلى id بناءً على استخدام القائمة المنسدلة
                 'required_if:role,doctor',
+                'nullable',
                 'exists:organizations,id' // التحقق من أن المنظمة موجودة فعلاً في قاعدة البيانات
             ],
         ];
