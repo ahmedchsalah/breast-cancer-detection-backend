@@ -533,7 +533,7 @@ class AuthController extends Controller
     //  UPDATE PROFILE
     // ============================================================
 
-    public function updateProfile(UpdateProfileRequest $request): JsonResponse
+    public function updateProfile(UpdateProfileRequest $request): \Illuminate\Http\JsonResponse
     {
         $user = auth()->user();
         $data = $request->validated();
@@ -556,18 +556,20 @@ class AuthController extends Controller
     //  UPDATE AVATAR
     // ============================================================
 
-    public function updateAvatar(UpdateAvatarRequest $request): JsonResponse
+    public function updateAvatar(UpdateAvatarRequest $request): \Illuminate\Http\JsonResponse
     {
         $user = auth()->user();
 
-        // Store the uploaded file
-        $path = $request->file('avatar')->store('avatars', 'public');
+        $file     = $request->file('avatar');
+        $mime     = $file->getMimeType();
+        $contents = file_get_contents($file->getRealPath());
+        $base64   = 'data:' . $mime . ';base64,' . base64_encode($contents);
 
-        $user->update(['avatar' => $path]);
+        $user->update(['avatar' => $base64]);
 
         return response()->json([
             'message' => 'Avatar updated successfully.',
-            'avatar'  => asset('storage/' . $path),
+            'avatar'  => $base64,
             'user'    => new UserResource($user->fresh()->load(['roles', 'organization'])),
         ]);
     }

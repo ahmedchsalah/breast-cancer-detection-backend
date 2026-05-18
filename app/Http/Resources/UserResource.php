@@ -18,10 +18,9 @@ class UserResource extends JsonResource
             'id' => $this->id,
             'name' => $this->name,
             'email' => $this->email,
-            'role' => $this->getRoleNames()->first(), // Cleaner role name
+            'role' => $this->getRoleNames()->first(),
             'is_active' => $this->is_active,
-
-            // Format the date nicely (e.g., "10 Feb 2026 12:08 PM")
+            'avatar' => $this->avatar,
             'joined_at' => $this->created_at->format('d M Y h:i A'),
 
             // Clean Organization Object (Updated with new schema)

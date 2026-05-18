@@ -12,7 +12,8 @@ return new class extends Migration
     public function up(): void
     {
         Schema::table('users', function (Blueprint $table) {
-            $table->string('avatar')->nullable()->after('name');
+            // Change to mediumText to hold base64-encoded avatar images (~500KB max)
+            $table->mediumText('avatar')->nullable()->change();
         });
     }
 
