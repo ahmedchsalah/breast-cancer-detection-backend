@@ -538,9 +538,10 @@ class AuthController extends Controller
         $user = auth()->user();
         $data = $request->validated();
 
-        if (!empty($data['password'])) {
-            $data['password'] = Hash::make($data['password']);
-        } else {
+        // Note: UpdateProfileRequest::passedValidation() already hashes the password
+        // if provided, so we must NOT hash it again here.
+        // We only unset it if it's empty (not provided).
+        if (empty($data['password'])) {
             unset($data['password']);
         }
 
