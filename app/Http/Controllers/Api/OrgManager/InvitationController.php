@@ -48,9 +48,13 @@ class InvitationController extends Controller
 
         // Plan checks
         if ($validated['role'] === 'instructor') {
-            if (!$plan || !$plan->instructor_allowed) {
+            // Instructor invitations require FL contribution to be allowed on the plan.
+            // fl_contribution_allowed = org can participate in federated learning → needs an instructor.
+            // instructor_allowed is a secondary explicit flag; either one being true is sufficient.
+            $canInviteInstructor = $plan && ($plan->fl_contribution_allowed || $plan->instructor_allowed);
+            if (!$canInviteInstructor) {
                 return response()->json([
-                    'message' => 'Your current plan does not allow inviting instructors. Please upgrade your plan.',
+                    'message' => 'Your current plan does not include federated learning access. Please upgrade to a plan that includes FL contribution to invite instructors.',
                     'reason'  => 'plan_no_instructor',
                 ], 422);
             }
