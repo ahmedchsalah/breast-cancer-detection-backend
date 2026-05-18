@@ -15,6 +15,8 @@ use Illuminate\Support\Facades\Mail;
 use Carbon\Carbon;
 use App\Http\Requests\Api\Auth\LoginRequest;
 use App\Http\Requests\Api\Auth\RegisterRequest;
+use App\Http\Requests\Api\Auth\UpdateProfileRequest;
+use App\Http\Requests\Api\Auth\UpdateAvatarRequest;
 use App\Http\Controllers\Controller;
 use App\Http\Resources\UserResource;
 use Illuminate\Http\Request;
@@ -525,6 +527,49 @@ class AuthController extends Controller
             false,
             'None'
         );
+    }
+
+    // ============================================================
+    //  UPDATE PROFILE
+    // ============================================================
+
+    public function updateProfile(UpdateProfileRequest $request): JsonResponse
+    {
+        $user = auth()->user();
+        $data = $request->validated();
+
+        if (!empty($data['password'])) {
+            $data['password'] = Hash::make($data['password']);
+        } else {
+            unset($data['password']);
+        }
+
+        $user->update($data);
+
+        return response()->json([
+            'message' => 'Profile updated successfully.',
+            'user'    => new UserResource($user->fresh()->load(['roles', 'organization'])),
+        ]);
+    }
+
+    // ============================================================
+    //  UPDATE AVATAR
+    // ============================================================
+
+    public function updateAvatar(UpdateAvatarRequest $request): JsonResponse
+    {
+        $user = auth()->user();
+
+        // Store the uploaded file
+        $path = $request->file('avatar')->store('avatars', 'public');
+
+        $user->update(['avatar' => $path]);
+
+        return response()->json([
+            'message' => 'Avatar updated successfully.',
+            'avatar'  => asset('storage/' . $path),
+            'user'    => new UserResource($user->fresh()->load(['roles', 'organization'])),
+        ]);
     }
 
     // ============================================================
