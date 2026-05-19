@@ -31,15 +31,29 @@ class WsiPresignController extends Controller
         ]);
 
         $doctor    = auth()->user();
-        $ext       = pathinfo($request->filename, PATHINFO_EXTENSION);
-        $r2Key     = "slides/{$doctor->organization_id}/{$request->patient_id}/" . Str::uuid() . ".{$ext}";
+        $ext       = pathinfo($request->filename, PATHINFO_EXTENSION) ?: 'svs';
+        $r2Key     = "slides/{$doctor->organization_id}/{$request->patient_id}/" . \Illuminate\Support\Str::uuid() . ".{$ext}";
 
-        // Generate presigned PUT URL (30 min expiry)
-        $presignedUrl = Storage::disk('r2')->temporaryUploadUrl(
-            $r2Key,
-            now()->addMinutes(30),
-            ['ContentType' => 'application/octet-stream']
-        );
+        // Use AWS SDK directly for R2-compatible presigned URL
+        $s3Client = new \Aws\S3\S3Client([
+            'version'                 => 'latest',
+            'region'                  => 'auto',
+            'endpoint'                => config('services.r2.endpoint'),
+            'use_path_style_endpoint' => true,
+            'credentials'             => [
+                'key'    => config('services.r2.access_key'),
+                'secret' => config('services.r2.secret_key'),
+            ],
+        ]);
+
+        $cmd = $s3Client->getCommand('PutObject', [
+            'Bucket'      => config('services.r2.bucket'),
+            'Key'         => $r2Key,
+            'ContentType' => 'application/octet-stream',
+        ]);
+
+        $presignedRequest = $s3Client->createPresignedRequest($cmd, '+30 minutes');
+        $presignedUrl     = (string) $presignedRequest->getUri();
 
         return response()->json([
             'presigned_url' => $presignedUrl,
