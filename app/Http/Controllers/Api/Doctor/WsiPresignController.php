@@ -94,6 +94,11 @@ class WsiPresignController extends Controller
             'ContentType' => 'application/octet-stream',
         ]);
 
+        \Illuminate\Support\Facades\Log::info('[R2 Multipart] Initiated', [
+            'upload_id' => $result['UploadId'],
+            'r2_key'    => $r2Key,
+        ]);
+
         return response()->json([
             'upload_id' => $result['UploadId'],
             'r2_key'    => $r2Key,
@@ -126,6 +131,13 @@ class WsiPresignController extends Controller
             $urls[] = (string) $s3->createPresignedRequest($cmd, '+120 minutes')->getUri();
         }
 
+        \Illuminate\Support\Facades\Log::info('[R2 Multipart] Generated part URLs', [
+            'upload_id'  => $request->upload_id,
+            'r2_key'     => $request->r2_key,
+            'part_count' => $request->part_count,
+            'url_sample' => substr($urls[0] ?? '', 0, 120),
+        ]);
+
         return response()->json(['part_urls' => $urls]);
     }
 
@@ -147,13 +159,19 @@ class WsiPresignController extends Controller
 
         // Ensure ETags are properly quoted — TrimStrings middleware may strip quotes
         $parts = array_map(function ($part) {
-            $etag = $part['ETag'];
-            // R2 requires ETags wrapped in double quotes
-            if (!str_starts_with($etag, '"')) {
-                $etag = '"' . $etag . '"';
-            }
+            $etag = trim($part['ETag']);
+            // Strip any existing quotes then re-wrap — handles double-quoting
+            $etag = trim($etag, '"');
+            $etag = '"' . $etag . '"';
             return ['PartNumber' => (int) $part['PartNumber'], 'ETag' => $etag];
         }, $request->parts);
+
+        \Illuminate\Support\Facades\Log::info('[R2 Multipart] Completing upload', [
+            'upload_id'   => $request->upload_id,
+            'r2_key'      => $request->r2_key,
+            'part_count'  => count($parts),
+            'parts_sample'=> array_slice($parts, 0, 3),
+        ]);
 
         $s3->completeMultipartUpload([
             'Bucket'          => config('services.r2.bucket'),
