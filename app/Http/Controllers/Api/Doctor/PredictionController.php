@@ -224,15 +224,32 @@ class PredictionController extends Controller
         // Update examination status
         $examination->update(['status' => Examination::STATUS_PREDICTED]);
 
-        // Dispatch async job to FastAPI (fire and forget via queue job)
-        // The webhook will update the prediction when FastAPI responds.
-        dispatch(new \App\Jobs\DispatchPredictionJob($prediction));
+        // For clinical-only predictions (no WSI), run synchronously — it takes ~30s
+        // and avoids queue worker dependency. For A6 (WSI), use the queue.
+        $hasPtFile = false;
+        if ($validated['wsi_upload_id'] ?? null) {
+            $wsiUpload = \App\Models\WsiUpload::find($validated['wsi_upload_id']);
+            $hasPtFile = $wsiUpload?->features_path &&
+                \Illuminate\Support\Facades\Storage::disk(config('filesystems.default'))
+                    ->exists($wsiUpload->features_path);
+        }
+
+        if ($hasPtFile) {
+            // A6 fusion — slow (3-5 min), use queue
+            dispatch(new \App\Jobs\DispatchPredictionJob($prediction));
+        } else {
+            // Clinical-only — fast (~30s), run synchronously so no queue worker needed
+            dispatch_sync(new \App\Jobs\DispatchPredictionJob($prediction));
+        }
 
         return response()->json([
             'message'       => 'Prediction dispatched. Results will be available shortly.',
             'prediction_id' => $prediction->id,
             'job_id'        => $prediction->job_id,
-            'status'        => $prediction->status,
+            'status'        => $prediction->fresh()->status,
+            'is_lum_a'      => $prediction->fresh()->is_lum_a,
+            'confidence_lum_a'     => $prediction->fresh()->confidence_lum_a,
+            'confidence_non_lum_a' => $prediction->fresh()->confidence_non_lum_a,
         ], 202);
     }
 

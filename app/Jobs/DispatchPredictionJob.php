@@ -96,6 +96,7 @@ class DispatchPredictionJob implements ShouldQueue
                               $featuresPath, $storageDisk);
             } else {
                 // ── Clinical-only fallback ────────────────────────────────────
+                // Clinical inference takes ~30s — run synchronously, no queue needed
                 $this->callClinical($fastApiBase, $hfToken, $prediction, $clinical, $mode);
             }
         } catch (\Throwable $e) {
