@@ -203,9 +203,9 @@ Route::middleware('auth:sanctum')->group(function () {
         Route::post('examinations/{examination}/submit',  [ExaminationController::class, 'submit']);
         Route::post('examinations/{examination}/conclude',[ExaminationController::class, 'conclude']);
 
-        // WSI uploads
-        Route::apiResource('wsi-uploads', WsiUploadController::class)->except(['update']);
+        // WSI uploads — register named route BEFORE apiResource to avoid conflict
         Route::post('wsi-uploads/from-features',                [WsiUploadController::class, 'storeFromFeatures']);
+        Route::apiResource('wsi-uploads', WsiUploadController::class)->except(['update']);
         Route::post('wsi-uploads/{wsiUpload}/extract-features', [WsiUploadController::class, 'extractFeatures']);
 
         // Predictions
