@@ -145,7 +145,7 @@ class WsiUploadController extends Controller
 
         $validated = $request->validate([
             'patient_id' => 'required|integer|exists:patients,id',
-            'file'       => 'required|file|mimes:tiff,svs,ndpi,scn,mrxs,vms,vmu,bif,btf|max:2097152', // 2 GB
+            'file'       => 'required|file|max:51200', // 50 MB max — .pt files are small (~2-5 MB)
         ]);
 
         $patient = Patient::findOrFail($validated['patient_id']);
@@ -162,7 +162,10 @@ class WsiUploadController extends Controller
             'original_name'   => $file->getClientOriginalName(),
             'file_size_bytes' => $file->getSize(),
             'mime_type'       => $file->getMimeType(),
-            'status'          => 'pending',
+            // If it's a .pt file, features are already extracted — mark as ready
+            'status'          => str_ends_with($file->getClientOriginalName(), '.pt') ? 'ready' : 'pending',
+            'features_path'   => str_ends_with($file->getClientOriginalName(), '.pt') ? $path : null,
+            'features_extracted_at' => str_ends_with($file->getClientOriginalName(), '.pt') ? now() : null,
         ]);
 
         return response()->json($upload, 201);
