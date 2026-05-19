@@ -55,6 +55,16 @@ Route::prefix('auth')->group(function () {
 Route::prefix('internal')->name('internal.')->group(function () {
     Route::post('/predictions/{jobId}/result', [PredictionWebhookController::class, 'handle'])
          ->name('predictions.result');
+
+    // Manual wake trigger — admin only, protected by internal secret header
+    Route::post('/brecai/wake', function (\Illuminate\Http\Request $request) {
+        $secret = $request->header('X-Internal-Secret');
+        if ($secret !== config('app.internal_webhook_secret')) {
+            return response()->json(['message' => 'Unauthorized.'], 401);
+        }
+        \Illuminate\Support\Facades\Artisan::queue('brecai:wake');
+        return response()->json(['message' => 'Wake command queued.']);
+    })->name('brecai.wake');
 });
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -170,6 +180,9 @@ Route::middleware('auth:sanctum')->group(function () {
     // DOCTOR — Core clinical workflow
     // ─────────────────────────────────────────────────────────────────────────
     Route::middleware('role:doctor')->prefix('doctor')->group(function () {
+
+        // Active AI models (read-only — for prediction wizard)
+        Route::get('ai-models', [AiModelController::class, 'indexPublic']);
 
         // Personal dashboard insights
         Route::prefix('insights')->group(function () {
