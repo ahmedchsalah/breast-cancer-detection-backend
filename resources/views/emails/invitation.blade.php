@@ -147,19 +147,20 @@
             border-radius: 10px;
             font-size: 15px;
             font-weight: 800;
-            color: #ffffff;
+            color: #ffffff !important;
             text-decoration: none;
             letter-spacing: 0.5px;
+            -webkit-text-fill-color: #ffffff;
         }
 
         .cta-btn.role-doctor {
-            background: linear-gradient(135deg, #0572B2, #2db8a8);
-            box-shadow: 0 6px 20px rgba(5, 114, 178, 0.35);
+            background: linear-gradient(135deg, #0572B2, #0BB592);
+            box-shadow: 0 6px 20px rgba(5, 114, 178, 0.4);
         }
 
         .cta-btn.role-instructor {
             background: linear-gradient(135deg, #4f46e5, #7c3aed);
-            box-shadow: 0 6px 20px rgba(79, 70, 229, 0.35);
+            box-shadow: 0 6px 20px rgba(79, 70, 229, 0.4);
         }
 
         /* Info box */

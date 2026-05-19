@@ -52,7 +52,7 @@ class InsightsController extends Controller
         $orgId = $this->orgId();
 
         return response()->json([
-            'total_members'          => User::where('organization_id', $orgId)->count(),
+            'total_members'          => User::where('organization_id', $orgId)->role('doctor')->count(),
             'active_doctors'         => User::where('organization_id', $orgId)->where('is_active', true)->role('doctor')->count(),
             'pending_approvals'      => User::where('organization_id', $orgId)->where('is_active', false)->role('doctor')->count(),
             'total_patients'         => Patient::where('organization_id', $orgId)->count(),
