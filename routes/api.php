@@ -205,6 +205,7 @@ Route::middleware('auth:sanctum')->group(function () {
 
         // WSI uploads
         Route::apiResource('wsi-uploads', WsiUploadController::class)->except(['update']);
+        Route::post('wsi-uploads/from-features',                [WsiUploadController::class, 'storeFromFeatures']);
         Route::post('wsi-uploads/{wsiUpload}/extract-features', [WsiUploadController::class, 'extractFeatures']);
 
         // Predictions

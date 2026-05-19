@@ -112,6 +112,56 @@ class WsiUploadController extends Controller
     }
 
     // ============================================================
+    //  STORE FROM FEATURES (base64 JSON — bypasses PHP upload limit)
+    // ============================================================
+
+    /**
+     * POST /doctor/wsi-uploads/from-features
+     *
+     * Accepts pre-extracted CONCH features as a base64-encoded .pt string.
+     * This avoids PHP's upload_max_filesize limit entirely since it's JSON.
+     * The frontend calls FastAPI /extract/wsi directly, gets back pt_b64,
+     * then sends it here to register the upload record.
+     */
+    public function storeFromFeatures(Request $request): JsonResponse
+    {
+        $doctor = $this->doctor();
+
+        $validated = $request->validate([
+            'patient_id'    => 'required|integer|exists:patients,id',
+            'pt_b64'        => 'required|string',
+            'original_name' => 'nullable|string|max:255',
+        ]);
+
+        $patient = Patient::findOrFail($validated['patient_id']);
+        abort_if($patient->organization_id !== $doctor->organization_id, 403, 'Patient does not belong to your organization.');
+
+        // Decode base64 and save as .pt file
+        $ptBytes = base64_decode($validated['pt_b64']);
+        if ($ptBytes === false || strlen($ptBytes) < 100) {
+            return response()->json(['message' => 'Invalid or empty feature data.'], 422);
+        }
+
+        $path = "features/{$doctor->organization_id}/{$patient->id}_" . uniqid() . ".pt";
+        Storage::disk(config('filesystems.default'))->put($path, $ptBytes);
+
+        $upload = WsiUpload::create([
+            'patient_id'            => $patient->id,
+            'uploaded_by'           => $doctor->id,
+            'organization_id'       => $doctor->organization_id,
+            'file_path'             => $path,
+            'original_name'         => $validated['original_name'] ?? 'features.pt',
+            'file_size_bytes'       => strlen($ptBytes),
+            'mime_type'             => 'application/octet-stream',
+            'status'                => 'ready',
+            'features_path'         => $path,
+            'features_extracted_at' => now(),
+        ]);
+
+        return response()->json($upload, 201);
+    }
+
+    // ============================================================
     //  STORE
     // ============================================================
 
