@@ -145,11 +145,21 @@ class WsiPresignController extends Controller
 
         $s3 = $this->s3Client();
 
+        // Ensure ETags are properly quoted — TrimStrings middleware may strip quotes
+        $parts = array_map(function ($part) {
+            $etag = $part['ETag'];
+            // R2 requires ETags wrapped in double quotes
+            if (!str_starts_with($etag, '"')) {
+                $etag = '"' . $etag . '"';
+            }
+            return ['PartNumber' => (int) $part['PartNumber'], 'ETag' => $etag];
+        }, $request->parts);
+
         $s3->completeMultipartUpload([
             'Bucket'          => config('services.r2.bucket'),
             'Key'             => $request->r2_key,
             'UploadId'        => $request->upload_id,
-            'MultipartUpload' => ['Parts' => $request->parts],
+            'MultipartUpload' => ['Parts' => $parts],
         ]);
 
         return response()->json(['message' => 'Upload complete.', 'r2_key' => $request->r2_key]);
