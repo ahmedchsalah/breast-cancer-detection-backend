@@ -296,6 +296,25 @@ class ExaminationController extends Controller
     }
 
     // ============================================================
+    //  FORCE DESTROY — delete any examination regardless of status
+    // ============================================================
+
+    public function forceDestroy(Examination $examination): JsonResponse
+    {
+        $this->ensureOwnership($examination);
+
+        // Delete associated prediction and XAI results first
+        if ($examination->prediction) {
+            $examination->prediction->xaiResult?->delete();
+            $examination->prediction->delete();
+        }
+
+        $examination->delete();
+
+        return response()->json(['message' => 'Examination and associated data deleted.']);
+    }
+
+    // ============================================================
     //  DESTROY
     // ============================================================
 
