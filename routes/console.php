@@ -12,7 +12,7 @@ Artisan::command('inspire', function () {
 // Pings the FastAPI /health endpoint every 12 hours so the HF Space
 // never goes to sleep (HF pauses free spaces after 48h of inactivity).
 Schedule::command('brecai:wake')
-    ->everyTwelveHours()
+    ->twiceDaily(0, 12)
     ->withoutOverlapping()
     ->runInBackground()
     ->onSuccess(function () {
