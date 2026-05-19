@@ -184,6 +184,10 @@ Route::middleware('auth:sanctum')->group(function () {
         // Active AI models (read-only — for prediction wizard)
         Route::get('ai-models', [AiModelController::class, 'indexPublic']);
 
+        // R2 presigned URL for direct browser → R2 upload
+        Route::post('wsi/presign',        [\App\Http\Controllers\Api\Doctor\WsiPresignController::class, 'presign']);
+        Route::delete('wsi/r2',           [\App\Http\Controllers\Api\Doctor\WsiPresignController::class, 'deleteSlide']);
+
         // Personal dashboard insights
         Route::prefix('insights')->group(function () {
             Route::get('/kpis',                      [DoctorInsights::class, 'kpis']);
@@ -205,7 +209,8 @@ Route::middleware('auth:sanctum')->group(function () {
         Route::delete('examinations/{examination}/force', [ExaminationController::class, 'forceDestroy']);
 
         // WSI uploads — register named route BEFORE apiResource to avoid conflict
-        Route::post('wsi-uploads/from-features',                [WsiUploadController::class, 'storeFromFeatures']);
+        Route::post('wsi-uploads/from-features',  [WsiUploadController::class, 'storeFromFeatures']);
+        Route::post('wsi-uploads/from-r2-key',    [WsiUploadController::class, 'storeFromR2Key']);
         Route::apiResource('wsi-uploads', WsiUploadController::class)->except(['update']);
         Route::post('wsi-uploads/{wsiUpload}/extract-features', [WsiUploadController::class, 'extractFeatures']);
 

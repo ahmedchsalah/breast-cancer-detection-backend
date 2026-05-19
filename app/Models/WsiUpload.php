@@ -20,7 +20,8 @@ class WsiUpload extends Model
         'file_size_bytes',
         'mime_type',
         'status',
-        'features_path',          // path to pre-extracted CONCH .pt feature file
+        'r2_key',                 // Cloudflare R2 object key for the raw slide
+        'features_path',          // path to pre-extracted CONCH .pt feature file (legacy)
         'features_extracted_at',  // when features were extracted
     ];
 

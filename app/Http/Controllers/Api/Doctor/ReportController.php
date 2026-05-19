@@ -250,7 +250,99 @@ class ReportController extends Controller
 
         $report->update(['status' => Report::STATUS_FINAL]);
 
-        return response()->json(['message' => 'Report finalized.', 'report' => $report->fresh()]);
+        // Send report to doctor via email
+        $doctor = auth()->user();
+        try {
+            $report->load(['patient', 'prediction', 'examination']);
+
+            // Generate HTML report content (same as frontend generates)
+            $htmlContent = $this->generateReportHtml($report, $doctor);
+            $b64Content  = base64_encode($htmlContent);
+            $filename    = "report-{$report->patient?->patient_identifier}-{$report->id}.html";
+
+            \Illuminate\Support\Facades\Mail::to($doctor->email)
+                ->send(new \App\Mail\ReportGeneratedMail($report, $doctor, $b64Content, $filename));
+
+            \Illuminate\Support\Facades\Log::info("[Report] Email sent to {$doctor->email} for report #{$report->id}");
+        } catch (\Throwable $e) {
+            \Illuminate\Support\Facades\Log::warning("[Report] Email failed for report #{$report->id}: {$e->getMessage()}");
+            // Don't fail the finalization if email fails
+        }
+
+        return response()->json(['message' => 'Report finalized and sent to your email.', 'report' => $report->fresh()]);
+    }
+
+    private function generateReportHtml(Report $report, $doctor): string
+    {
+        $patient   = $report->patient;
+        $pred      = $report->prediction;
+        $isLumA    = $pred?->is_lum_a;
+        $conf      = $pred?->confidence_lum_a ?? 0;
+        $date      = now()->format('d F Y');
+        $color     = $isLumA ? '#0BB592' : '#F55486';
+        $label     = $isLumA ? 'Luminal A' : 'Non-Luminal A';
+        $therapy   = $isLumA
+            ? 'Luminal A subtype confirmed. Strong candidate for Endocrine (Hormonal) Therapy — Tamoxifen / Aromatase Inhibitors. Chemotherapy likely not indicated.'
+            : 'Non-Luminal A subtype detected. Higher risk profile — Chemotherapy or Targeted Therapy may be required. Consult MDT board.';
+
+        return <<<HTML
+<!DOCTYPE html><html><head><meta charset="UTF-8"/>
+<title>Clinical Report — {$patient?->patient_identifier}</title>
+<style>
+body{font-family:'Segoe UI',Arial,sans-serif;margin:0;padding:40px;color:#1e293b;}
+.header{background:linear-gradient(135deg,#072a5e,#0572B2);color:#fff;padding:32px 40px;border-radius:12px;margin-bottom:32px;}
+.header h1{margin:0 0 4px;font-size:28px;font-weight:900;}
+.section{margin-bottom:24px;}
+.section-title{font-size:10px;font-weight:900;text-transform:uppercase;letter-spacing:2px;color:#94a3b8;margin-bottom:12px;}
+.grid{display:grid;grid-template-columns:1fr 1fr;gap:12px;}
+.card{background:#f8fafc;border:1px solid #e2e8f0;border-radius:10px;padding:14px 16px;}
+.card-label{font-size:10px;font-weight:800;text-transform:uppercase;letter-spacing:1px;color:#94a3b8;margin-bottom:4px;}
+.card-value{font-size:18px;font-weight:900;color:#1e293b;}
+.result-box{background:{$color}15;border:2px solid {$color}40;border-radius:12px;padding:20px 24px;margin-bottom:24px;}
+.result-label{font-size:32px;font-weight:900;color:{$color};}
+.therapy{background:#f8fafc;border-left:4px solid {$color};padding:14px 16px;border-radius:0 8px 8px 0;font-size:13px;line-height:1.6;}
+.footer{margin-top:40px;padding-top:20px;border-top:1px solid #e2e8f0;font-size:11px;color:#94a3b8;}
+</style></head><body>
+<div class="header">
+<p style="font-size:11px;font-weight:800;letter-spacing:3px;text-transform:uppercase;opacity:0.65;margin-bottom:8px;">BRECAI-FED · Clinical Diagnostic Report</p>
+<h1>{$patient?->patient_identifier}</h1>
+<p>Generated: {$date} · Dr. {$doctor->name}</p>
+</div>
+<div class="section">
+<div class="section-title">Patient Information</div>
+<div class="grid">
+<div class="card"><div class="card-label">Patient ID</div><div class="card-value">{$patient?->patient_identifier}</div></div>
+<div class="card"><div class="card-label">Age</div><div class="card-value">{$patient?->age} years</div></div>
+<div class="card"><div class="card-label">Stage</div><div class="card-value">Stage {$patient?->stage_num}</div></div>
+<div class="card"><div class="card-label">Biomarkers</div><div class="card-value">
+{$this->bioStr($patient)}
+</div></div>
+</div></div>
+<div class="result-box">
+<div style="font-size:11px;font-weight:800;text-transform:uppercase;letter-spacing:1.5px;color:#94a3b8;margin-bottom:8px;">AI Prediction Result</div>
+<div class="result-label">{$label}</div>
+<p style="margin:8px 0 0;font-size:13px;color:#475569;">Luminal A probability: <strong>{$this->pct($conf)}%</strong></p>
+</div>
+<div class="section">
+<div class="section-title">Therapy Recommendation</div>
+<div class="therapy">{$therapy}</div>
+</div>
+HTML . ($report->notes ? "<div class='section'><div class='section-title'>Clinical Notes</div><div class='therapy'>{$report->notes}</div></div>" : '')
+. "<div class='footer'>BRECAI-FED · Federated Medical AI Platform · Report #{$report->id} · Status: " . strtoupper($report->status) . "</div></body></html>";
+    }
+
+    private function bioStr($patient): string
+    {
+        if (!$patient) return '—';
+        $er  = $patient->er_status  ? 'ER+' : 'ER-';
+        $pr  = $patient->pr_status  ? 'PR+' : 'PR-';
+        $her = $patient->her2_binary ? 'HER2+' : 'HER2-';
+        return "{$er} / {$pr} / {$her}";
+    }
+
+    private function pct($val): string
+    {
+        return number_format(($val ?? 0) * 100, 1);
     }
 
     // ============================================================

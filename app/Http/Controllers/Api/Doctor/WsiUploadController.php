@@ -112,6 +112,38 @@ class WsiUploadController extends Controller
     }
 
     // ============================================================
+    //  STORE FROM R2 KEY (slide already uploaded to R2 by browser)
+    // ============================================================
+
+    public function storeFromR2Key(Request $request): JsonResponse
+    {
+        $doctor = $this->doctor();
+
+        $validated = $request->validate([
+            'patient_id'    => 'required|integer|exists:patients,id',
+            'r2_key'        => 'required|string|max:500',
+            'original_name' => 'nullable|string|max:255',
+        ]);
+
+        $patient = Patient::findOrFail($validated['patient_id']);
+        abort_if($patient->organization_id !== $doctor->organization_id, 403, 'Patient does not belong to your organization.');
+
+        $upload = WsiUpload::create([
+            'patient_id'      => $patient->id,
+            'uploaded_by'     => $doctor->id,
+            'organization_id' => $doctor->organization_id,
+            'file_path'       => $validated['r2_key'], // store r2_key as file_path for reference
+            'original_name'   => $validated['original_name'] ?? 'slide.svs',
+            'file_size_bytes' => null,
+            'mime_type'       => 'application/octet-stream',
+            'status'          => 'pending', // FastAPI will process it
+            'r2_key'          => $validated['r2_key'],
+        ]);
+
+        return response()->json($upload, 201);
+    }
+
+    // ============================================================
     //  STORE FROM FEATURES (base64 JSON — bypasses PHP upload limit)
     // ============================================================
 

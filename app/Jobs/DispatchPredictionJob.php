@@ -81,22 +81,24 @@ class DispatchPredictionJob implements ShouldQueue
             || $patient->buffa_hypoxia_score !== null;
         $mode = $hasGenomics ? 'FULL' : 'DZ';
 
-        // ── Check if we have a pre-extracted CONCH features file ─────────────
+        // ── Check if we have a slide in R2 or a local .pt file ──────────────
         $wsiUpload    = $prediction->wsiUpload;
+        $r2Key        = $wsiUpload?->r2_key;
         $featuresPath = $wsiUpload?->features_path;
-
-        // Use the default configured disk (local in dev, S3/cloud in production)
         $storageDisk  = config('filesystems.default');
         $hasPtFile    = $featuresPath && Storage::disk($storageDisk)->exists($featuresPath);
+        $hasR2Slide   = !empty($r2Key);
 
         try {
-            if ($hasPtFile) {
-                // ── A6 Full Fusion ────────────────────────────────────────────
+            if ($hasR2Slide) {
+                // ── A6 Full Fusion via R2 slide ───────────────────────────────
+                $this->callA6ViaR2($fastApiBase, $hfToken, $prediction, $clinical, $mode, $r2Key);
+            } elseif ($hasPtFile) {
+                // ── A6 Full Fusion via local .pt (legacy) ─────────────────────
                 $this->callA6($fastApiBase, $hfToken, $prediction, $clinical, $mode,
                               $featuresPath, $storageDisk);
             } else {
                 // ── Clinical-only fallback ────────────────────────────────────
-                // Clinical inference takes ~30s — run synchronously, no queue needed
                 $this->callClinical($fastApiBase, $hfToken, $prediction, $clinical, $mode);
             }
         } catch (\Throwable $e) {
@@ -110,7 +112,47 @@ class DispatchPredictionJob implements ShouldQueue
     }
 
     // ─────────────────────────────────────────────────────────────────────────
-    //  A6 Cross-Attention Fusion
+    //  A6 Cross-Attention Fusion via R2 (new flow)
+    // ─────────────────────────────────────────────────────────────────────────
+    private function callA6ViaR2(
+        string $base, ?string $hfToken,
+        Prediction $prediction, array $clinical, string $mode,
+        string $r2Key
+    ): void {
+        $r2Endpoint  = config('services.r2.endpoint');
+        $r2Bucket    = config('services.r2.bucket');
+        $r2AccessKey = config('services.r2.access_key');
+        $r2SecretKey = config('services.r2.secret_key');
+
+        $client = Http::timeout(540);
+        if ($hfToken) {
+            $client = $client->withToken($hfToken);
+        }
+
+        $response = $client->post("{$base}/predict/a6/from-r2", [
+            'r2_endpoint'   => $r2Endpoint,
+            'r2_bucket'     => $r2Bucket,
+            'r2_key'        => $r2Key,
+            'r2_access_key' => $r2AccessKey,
+            'r2_secret_key' => $r2SecretKey,
+            'clinical_json' => json_encode($clinical),
+            'mode'          => $mode,
+            'job_id'        => $prediction->job_id,
+        ]);
+
+        $this->processHttpResponse($response, $prediction, 'a6_fusion_r2');
+
+        // Delete the raw slide from R2 after successful processing
+        try {
+            Storage::disk('r2')->delete($r2Key);
+            Log::info("[BReCAI] Deleted slide from R2: {$r2Key}");
+        } catch (\Throwable $e) {
+            Log::warning("[BReCAI] Failed to delete R2 slide {$r2Key}: {$e->getMessage()}");
+        }
+    }
+
+    // ─────────────────────────────────────────────────────────────────────────
+    //  A6 Cross-Attention Fusion (legacy local .pt)
     // ─────────────────────────────────────────────────────────────────────────
     private function callA6(
         string $base, ?string $hfToken,
