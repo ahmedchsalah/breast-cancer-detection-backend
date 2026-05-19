@@ -6,36 +6,26 @@ use App\Http\Controllers\Controller;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Storage;
-use Illuminate\Support\Str;
 
 /**
  * WsiPresignController
  *
- * Generates presigned URLs for direct browser → R2 uploads.
- * The browser uploads the SVS directly to R2 without going through Laravel,
- * then tells Laravel the R2 key so FastAPI can process it.
+ * Handles direct browser → R2 uploads via:
+ *   - Single presigned PUT  (files < 100 MB)
+ *   - Multipart upload      (files ≥ 100 MB — reliable for large SVS files)
+ *
+ * Multipart flow:
+ *   1. POST /doctor/wsi/presign          → single presigned PUT URL  (small files)
+ *   2. POST /doctor/wsi/multipart/init   → uploadId + r2Key
+ *   3. POST /doctor/wsi/multipart/parts  → array of presigned part URLs
+ *   4. POST /doctor/wsi/multipart/complete → assemble parts in R2
+ *   5. POST /doctor/wsi/multipart/abort  → cancel on error
  */
 class WsiPresignController extends Controller
 {
-    /**
-     * POST /doctor/wsi/presign
-     *
-     * Returns a presigned PUT URL for direct browser upload to R2.
-     * The URL expires in 30 minutes.
-     */
-    public function presign(Request $request): JsonResponse
+    private function s3Client(): \Aws\S3\S3Client
     {
-        $request->validate([
-            'filename'   => 'required|string|max:255',
-            'patient_id' => 'required|integer|exists:patients,id',
-        ]);
-
-        $doctor    = auth()->user();
-        $ext       = pathinfo($request->filename, PATHINFO_EXTENSION) ?: 'svs';
-        $r2Key     = "slides/{$doctor->organization_id}/{$request->patient_id}/" . \Illuminate\Support\Str::uuid() . ".{$ext}";
-
-        // Use AWS SDK directly for R2-compatible presigned URL
-        $s3Client = new \Aws\S3\S3Client([
+        return new \Aws\S3\S3Client([
             'version'                 => 'latest',
             'region'                  => 'auto',
             'endpoint'                => config('services.r2.endpoint'),
@@ -45,41 +35,164 @@ class WsiPresignController extends Controller
                 'secret' => config('services.r2.secret_key'),
             ],
         ]);
+    }
 
-        $cmd = $s3Client->getCommand('PutObject', [
+    private function r2Key(Request $request): string
+    {
+        $doctor = auth()->user();
+        $ext    = pathinfo($request->filename, PATHINFO_EXTENSION) ?: 'svs';
+        return "slides/{$doctor->organization_id}/{$request->patient_id}/"
+             . \Illuminate\Support\Str::uuid() . ".{$ext}";
+    }
+
+    // ─────────────────────────────────────────────────────────────────────────
+    //  Single presigned PUT (small files < 100 MB)
+    // ─────────────────────────────────────────────────────────────────────────
+
+    public function presign(Request $request): JsonResponse
+    {
+        $request->validate([
+            'filename'   => 'required|string|max:255',
+            'patient_id' => 'required|integer|exists:patients,id',
+        ]);
+
+        $r2Key = $this->r2Key($request);
+        $s3    = $this->s3Client();
+
+        $cmd = $s3->getCommand('PutObject', [
             'Bucket'      => config('services.r2.bucket'),
             'Key'         => $r2Key,
             'ContentType' => 'application/octet-stream',
         ]);
 
-        $presignedRequest = $s3Client->createPresignedRequest($cmd, '+30 minutes');
-        $presignedUrl     = (string) $presignedRequest->getUri();
+        $presignedUrl = (string) $s3->createPresignedRequest($cmd, '+60 minutes')->getUri();
 
         return response()->json([
             'presigned_url' => $presignedUrl,
             'r2_key'        => $r2Key,
-            'expires_in'    => 1800,
+            'expires_in'    => 3600,
         ]);
     }
 
-    /**
-     * DELETE /doctor/wsi/r2/{key}
-     *
-     * Manually delete a slide from R2 (called after processing completes).
-     */
+    // ─────────────────────────────────────────────────────────────────────────
+    //  Multipart — Step 1: Initiate
+    // ─────────────────────────────────────────────────────────────────────────
+
+    public function multipartInit(Request $request): JsonResponse
+    {
+        $request->validate([
+            'filename'   => 'required|string|max:255',
+            'patient_id' => 'required|integer|exists:patients,id',
+        ]);
+
+        $r2Key = $this->r2Key($request);
+        $s3    = $this->s3Client();
+
+        $result = $s3->createMultipartUpload([
+            'Bucket'      => config('services.r2.bucket'),
+            'Key'         => $r2Key,
+            'ContentType' => 'application/octet-stream',
+        ]);
+
+        return response()->json([
+            'upload_id' => $result['UploadId'],
+            'r2_key'    => $r2Key,
+        ]);
+    }
+
+    // ─────────────────────────────────────────────────────────────────────────
+    //  Multipart — Step 2: Get presigned URLs for each part
+    // ─────────────────────────────────────────────────────────────────────────
+
+    public function multipartParts(Request $request): JsonResponse
+    {
+        $request->validate([
+            'upload_id'  => 'required|string',
+            'r2_key'     => 'required|string',
+            'part_count' => 'required|integer|min:1|max:10000',
+        ]);
+
+        $s3     = $this->s3Client();
+        $bucket = config('services.r2.bucket');
+        $urls   = [];
+
+        for ($i = 1; $i <= $request->part_count; $i++) {
+            $cmd = $s3->getCommand('UploadPart', [
+                'Bucket'     => $bucket,
+                'Key'        => $request->r2_key,
+                'UploadId'   => $request->upload_id,
+                'PartNumber' => $i,
+            ]);
+            $urls[] = (string) $s3->createPresignedRequest($cmd, '+120 minutes')->getUri();
+        }
+
+        return response()->json(['part_urls' => $urls]);
+    }
+
+    // ─────────────────────────────────────────────────────────────────────────
+    //  Multipart — Step 3: Complete
+    // ─────────────────────────────────────────────────────────────────────────
+
+    public function multipartComplete(Request $request): JsonResponse
+    {
+        $request->validate([
+            'upload_id' => 'required|string',
+            'r2_key'    => 'required|string',
+            'parts'     => 'required|array|min:1',
+            'parts.*.PartNumber' => 'required|integer',
+            'parts.*.ETag'       => 'required|string',
+        ]);
+
+        $s3 = $this->s3Client();
+
+        $s3->completeMultipartUpload([
+            'Bucket'          => config('services.r2.bucket'),
+            'Key'             => $request->r2_key,
+            'UploadId'        => $request->upload_id,
+            'MultipartUpload' => ['Parts' => $request->parts],
+        ]);
+
+        return response()->json(['message' => 'Upload complete.', 'r2_key' => $request->r2_key]);
+    }
+
+    // ─────────────────────────────────────────────────────────────────────────
+    //  Multipart — Abort on error
+    // ─────────────────────────────────────────────────────────────────────────
+
+    public function multipartAbort(Request $request): JsonResponse
+    {
+        $request->validate([
+            'upload_id' => 'required|string',
+            'r2_key'    => 'required|string',
+        ]);
+
+        try {
+            $this->s3Client()->abortMultipartUpload([
+                'Bucket'   => config('services.r2.bucket'),
+                'Key'      => $request->r2_key,
+                'UploadId' => $request->upload_id,
+            ]);
+        } catch (\Throwable $e) {
+            // Best-effort — don't fail the response
+        }
+
+        return response()->json(['message' => 'Upload aborted.']);
+    }
+
+    // ─────────────────────────────────────────────────────────────────────────
+    //  Delete slide from R2
+    // ─────────────────────────────────────────────────────────────────────────
+
     public function deleteSlide(Request $request): JsonResponse
     {
         $request->validate(['r2_key' => 'required|string']);
 
         $key = $request->r2_key;
-
-        // Security: only allow deleting from slides/ prefix
         if (!str_starts_with($key, 'slides/')) {
             return response()->json(['message' => 'Invalid key.'], 422);
         }
 
         Storage::disk('r2')->delete($key);
-
         return response()->json(['message' => 'Slide deleted from storage.']);
     }
 }

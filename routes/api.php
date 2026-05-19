@@ -185,8 +185,13 @@ Route::middleware('auth:sanctum')->group(function () {
         Route::get('ai-models', [AiModelController::class, 'indexPublic']);
 
         // R2 presigned URL for direct browser → R2 upload
-        Route::post('wsi/presign',        [\App\Http\Controllers\Api\Doctor\WsiPresignController::class, 'presign']);
-        Route::delete('wsi/r2',           [\App\Http\Controllers\Api\Doctor\WsiPresignController::class, 'deleteSlide']);
+        Route::post('wsi/presign',              [\App\Http\Controllers\Api\Doctor\WsiPresignController::class, 'presign']);
+        Route::delete('wsi/r2',                 [\App\Http\Controllers\Api\Doctor\WsiPresignController::class, 'deleteSlide']);
+        // Multipart upload (large SVS files)
+        Route::post('wsi/multipart/init',       [\App\Http\Controllers\Api\Doctor\WsiPresignController::class, 'multipartInit']);
+        Route::post('wsi/multipart/parts',      [\App\Http\Controllers\Api\Doctor\WsiPresignController::class, 'multipartParts']);
+        Route::post('wsi/multipart/complete',   [\App\Http\Controllers\Api\Doctor\WsiPresignController::class, 'multipartComplete']);
+        Route::post('wsi/multipart/abort',      [\App\Http\Controllers\Api\Doctor\WsiPresignController::class, 'multipartAbort']);
 
         // Personal dashboard insights
         Route::prefix('insights')->group(function () {
