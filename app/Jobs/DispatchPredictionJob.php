@@ -91,8 +91,14 @@ class DispatchPredictionJob implements ShouldQueue
 
         try {
             if ($hasR2Slide) {
-                // ── A6 Full Fusion via R2 slide ───────────────────────────────
-                $this->callA6ViaR2($fastApiBase, $hfToken, $prediction, $clinical, $mode, $r2Key);
+                $modalUrl = rtrim((string) config('services.modal.url'), '/');
+                if ($modalUrl !== '') {
+                    // ── A6 Full Fusion via Modal GPU (fast path) ─────────────
+                    $this->callA6ViaModal($modalUrl, $prediction, $clinical, $mode, $r2Key);
+                } else {
+                    // ── A6 Full Fusion via HF + R2 (legacy fallback) ─────────
+                    $this->callA6ViaR2($fastApiBase, $hfToken, $prediction, $clinical, $mode, $r2Key);
+                }
             } elseif ($hasPtFile) {
                 // ── A6 Full Fusion via local .pt (legacy) ─────────────────────
                 $this->callA6($fastApiBase, $hfToken, $prediction, $clinical, $mode,
@@ -112,7 +118,63 @@ class DispatchPredictionJob implements ShouldQueue
     }
 
     // ─────────────────────────────────────────────────────────────────────────
-    //  A6 Cross-Attention Fusion via R2 (new flow)
+    //  A6 Cross-Attention Fusion via Modal GPU (fast path — full pipeline on T4)
+    // ─────────────────────────────────────────────────────────────────────────
+    private function callA6ViaModal(
+        string $modalBase, Prediction $prediction, array $clinical,
+        string $mode, string $r2Key
+    ): void {
+        // Generate a short-lived presigned GET URL for Modal to pull the slide
+        $slideUrl = $this->generateR2PresignedGetUrl($r2Key, '+30 minutes');
+
+        $payload = [
+            'slide_url'     => $slideUrl,
+            'original_name' => $prediction->wsiUpload?->original_name ?? 'slide.svs',
+            'clinical'      => $clinical,
+            'mode'          => $mode,
+            'job_id'        => $prediction->job_id,
+        ];
+
+        Log::info("[BReCAI] Calling Modal /predict-a6-from-r2 for prediction #{$prediction->id}");
+
+        $response = Http::timeout(1500)
+            ->acceptJson()
+            ->asJson()
+            ->post(rtrim($modalBase, '/') . '/predict-a6-from-r2', $payload);
+
+        $this->processHttpResponse($response, $prediction, 'a6_fusion_modal');
+
+        // Delete the raw slide from R2 after successful processing
+        try {
+            Storage::disk('r2')->delete($r2Key);
+            Log::info("[BReCAI] Deleted slide from R2: {$r2Key}");
+        } catch (\Throwable $e) {
+            Log::warning("[BReCAI] Failed to delete R2 slide {$r2Key}: {$e->getMessage()}");
+        }
+    }
+
+    /** Generate a short-lived presigned GET URL for an R2 key (for Modal to pull). */
+    private function generateR2PresignedGetUrl(string $r2Key, string $duration = '+30 minutes'): string
+    {
+        $s3 = new \Aws\S3\S3Client([
+            'version'                 => 'latest',
+            'region'                  => 'auto',
+            'endpoint'                => config('services.r2.endpoint'),
+            'use_path_style_endpoint' => true,
+            'credentials'             => [
+                'key'    => config('services.r2.access_key'),
+                'secret' => config('services.r2.secret_key'),
+            ],
+        ]);
+        $cmd = $s3->getCommand('GetObject', [
+            'Bucket' => config('services.r2.bucket'),
+            'Key'    => $r2Key,
+        ]);
+        return (string) $s3->createPresignedRequest($cmd, $duration)->getUri();
+    }
+
+    // ─────────────────────────────────────────────────────────────────────────
+    //  A6 Cross-Attention Fusion via R2 (legacy HF flow)
     // ─────────────────────────────────────────────────────────────────────────
     private function callA6ViaR2(
         string $base, ?string $hfToken,

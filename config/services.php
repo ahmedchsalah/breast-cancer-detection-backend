@@ -53,6 +53,13 @@ return [
         'hf_token' => env('HF_TOKEN'),
     ],
 
+    // ── Modal GPU service (full pipeline: tile + CONCH + A6 fusion) ───────────
+    // When set, A6 image+clinical predictions go directly to Modal instead of HF,
+    // cutting the round-trip and using the warm GPU container end-to-end.
+    'modal' => [
+        'url' => env('MODAL_URL', 'https://brest-cancer-detection-project-m2--brecai-extract.modal.run'),
+    ],
+
     // ── Cloudflare R2 object storage ─────────────────────────────────────────
     'r2' => [
         'account_id' => env('R2_ACCOUNT_ID'),
