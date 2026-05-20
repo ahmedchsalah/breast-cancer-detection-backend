@@ -208,6 +208,33 @@ class WsiPresignController extends Controller
     }
 
     // ─────────────────────────────────────────────────────────────────────────
+    //  Presigned GET URL — for Modal to pull the SVS from R2
+    // ─────────────────────────────────────────────────────────────────────────
+
+    public function presignGet(Request $request): JsonResponse
+    {
+        $request->validate(['r2_key' => 'required|string|max:500']);
+
+        // Sanity: only slide keys
+        if (!str_starts_with($request->r2_key, 'slides/')) {
+            return response()->json(['message' => 'Invalid key.'], 422);
+        }
+
+        $s3  = $this->s3Client();
+        $cmd = $s3->getCommand('GetObject', [
+            'Bucket' => config('services.r2.bucket'),
+            'Key'    => $request->r2_key,
+        ]);
+
+        $url = (string) $s3->createPresignedRequest($cmd, '+30 minutes')->getUri();
+
+        return response()->json([
+            'presigned_url' => $url,
+            'expires_in'    => 1800,
+        ]);
+    }
+
+    // ─────────────────────────────────────────────────────────────────────────
     //  Delete slide from R2
     // ─────────────────────────────────────────────────────────────────────────
 

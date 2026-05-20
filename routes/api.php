@@ -186,6 +186,7 @@ Route::middleware('auth:sanctum')->group(function () {
 
         // R2 presigned URL for direct browser → R2 upload
         Route::post('wsi/presign',              [\App\Http\Controllers\Api\Doctor\WsiPresignController::class, 'presign']);
+        Route::post('wsi/presign-get',          [\App\Http\Controllers\Api\Doctor\WsiPresignController::class, 'presignGet']);
         Route::delete('wsi/r2',                 [\App\Http\Controllers\Api\Doctor\WsiPresignController::class, 'deleteSlide']);
         // Multipart upload (large SVS files)
         Route::post('wsi/multipart/init',       [\App\Http\Controllers\Api\Doctor\WsiPresignController::class, 'multipartInit']);
