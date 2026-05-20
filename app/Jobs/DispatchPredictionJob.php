@@ -31,8 +31,8 @@ class DispatchPredictionJob implements ShouldQueue
 {
     use Dispatchable, InteractsWithQueue, Queueable, SerializesModels;
 
-    /** Maximum queue execution time (seconds). A6 on CPU takes 3–5 min. */
-    public int $timeout = 600;
+    /** Maximum queue execution time (seconds). Large SVS on CPU can take 20+ min. */
+    public int $timeout = 1800;
 
     /** Retry on transient network failures. */
     public int $tries = 3;
@@ -124,7 +124,7 @@ class DispatchPredictionJob implements ShouldQueue
         $r2AccessKey = config('services.r2.access_key');
         $r2SecretKey = config('services.r2.secret_key');
 
-        $client = Http::timeout(540);
+        $client = Http::timeout(1500); // 25 min — large SVS slides take time on CPU
         if ($hfToken) {
             $client = $client->withToken($hfToken);
         }
