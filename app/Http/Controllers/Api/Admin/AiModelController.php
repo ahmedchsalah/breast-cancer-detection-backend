@@ -244,10 +244,9 @@ class AiModelController extends Controller
     )]
     public function activate(AiModel $aiModel): JsonResponse
     {
-        AiModel::where('id', '!=', $aiModel->id)->update(['is_active' => false]);
         $aiModel->update(['is_active' => true]);
 
-        return response()->json(['message' => "Model '{$aiModel->name} v{$aiModel->version}' is now the active model."]);
+        return response()->json(['message' => "Model '{$aiModel->name} v{$aiModel->version}' activated."]);
     }
 
     // ============================================================
