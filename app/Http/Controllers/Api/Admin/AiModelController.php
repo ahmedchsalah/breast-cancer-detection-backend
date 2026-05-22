@@ -65,7 +65,7 @@ class AiModelController extends Controller
     {
         $models = AiModel::withCount('predictions', 'flRounds')
             ->orderByDesc('created_at')
-            ->get();
+            ->paginate(20);
 
         return response()->json($models);
     }
@@ -125,11 +125,19 @@ class AiModelController extends Controller
     public function store(Request $request): JsonResponse
     {
         $validated = $request->validate([
-            'name'      => 'required|string|max:100',
-            'version'   => 'required|string|max:30',
-            'file_path' => 'required|string|max:500',
-            'metadata'  => 'nullable|array',
-            'is_active' => 'nullable|boolean',
+            'name'           => 'required|string|max:100',
+            'slug'           => 'required|string|max:100|unique:ai_models,slug',
+            'version'        => 'required|string|max:30',
+            'inference_type' => 'required|in:a6_fusion,a4_image_only,clinical_only',
+            'description'    => 'nullable|string',
+            'auc'            => 'nullable|numeric|between:0,1',
+            'accuracy'       => 'nullable|numeric|between:0,1',
+            'sensitivity'    => 'nullable|numeric|between:0,1',
+            'specificity'    => 'nullable|numeric|between:0,1',
+            'f1_score'       => 'nullable|numeric|between:0,1',
+            'threshold'      => 'nullable|numeric|between:0,1',
+            'metadata'       => 'nullable|array',
+            'is_active'      => 'nullable|boolean',
         ]);
 
         $model = AiModel::create($validated);
@@ -168,11 +176,19 @@ class AiModelController extends Controller
     public function update(Request $request, AiModel $aiModel): JsonResponse
     {
         $validated = $request->validate([
-            'name'      => 'sometimes|string|max:100',
-            'version'   => 'sometimes|string|max:30',
-            'file_path' => 'sometimes|string|max:500',
-            'metadata'  => 'nullable|array',
-            'is_active' => 'nullable|boolean',
+            'name'           => 'sometimes|string|max:100',
+            'slug'           => 'sometimes|string|max:100|unique:ai_models,slug,' . $aiModel->id,
+            'version'        => 'sometimes|string|max:30',
+            'inference_type' => 'sometimes|in:a6_fusion,a4_image_only,clinical_only',
+            'description'    => 'nullable|string',
+            'auc'            => 'nullable|numeric|between:0,1',
+            'accuracy'       => 'nullable|numeric|between:0,1',
+            'sensitivity'    => 'nullable|numeric|between:0,1',
+            'specificity'    => 'nullable|numeric|between:0,1',
+            'f1_score'       => 'nullable|numeric|between:0,1',
+            'threshold'      => 'nullable|numeric|between:0,1',
+            'metadata'       => 'nullable|array',
+            'is_active'      => 'nullable|boolean',
         ]);
 
         $aiModel->update($validated);
