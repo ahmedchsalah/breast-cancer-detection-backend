@@ -12,6 +12,13 @@ use App\Http\Controllers\Api\Admin\OrganizationController as AdminOrganizationCo
 use App\Http\Controllers\Api\Admin\UserManagementController;
 use App\Http\Controllers\Api\Admin\AiModelController;
 use App\Http\Controllers\Api\Admin\AuditLogController;
+use App\Http\Controllers\Api\Admin\AdminSubscriptionController;
+use App\Http\Controllers\Api\Admin\AdminPaymentController;
+use App\Http\Controllers\Api\Admin\AdminExaminationController;
+use App\Http\Controllers\Api\Admin\AdminPatientController;
+use App\Http\Controllers\Api\Admin\AdminPredictionController;
+use App\Http\Controllers\Api\Admin\AdminFederatedRoundController;
+use App\Http\Controllers\Api\Admin\AdminPlanController;
 
 use App\Http\Controllers\Api\OrgManager\DashboardController  as OrgDashboard;
 use App\Http\Controllers\Api\OrgManager\InsightsController   as OrgInsights;
@@ -120,9 +127,40 @@ Route::middleware('auth:sanctum')->group(function () {
         Route::post('ai-models/{aiModel}/activate',   [AiModelController::class, 'activate']);
         Route::post('ai-models/{aiModel}/deactivate', [AiModelController::class, 'deactivate']);
 
+        // Plan management
+        Route::apiResource('plans', AdminPlanController::class);
+        Route::post('plans/{plan}/activate',   [AdminPlanController::class, 'activate']);
+        Route::post('plans/{plan}/deactivate', [AdminPlanController::class, 'deactivate']);
+
+        // Subscriptions (read-only)
+        Route::get('subscriptions',                  [AdminSubscriptionController::class, 'index']);
+        Route::get('subscriptions/{subscription}',   [AdminSubscriptionController::class, 'show']);
+
         // Audit logs (read-only)
         Route::get('audit-logs',        [AuditLogController::class, 'index']);
         Route::get('audit-logs/{auditLog}', [AuditLogController::class, 'show']);
+
+        // Payment management (read-only)
+        Route::get('payments',           [AdminPaymentController::class, 'index']);
+        Route::get('payments/{payment}', [AdminPaymentController::class, 'show']);
+
+        // Examinations (read-only, platform-wide)
+        Route::get('examinations',                [AdminExaminationController::class, 'index']);
+        Route::get('examinations/{examination}',  [AdminExaminationController::class, 'show']);
+
+        // Patients (read-only, platform-wide)
+        Route::get('patients',           [AdminPatientController::class, 'index']);
+        Route::get('patients/{patient}', [AdminPatientController::class, 'show']);
+
+        // Predictions (read-only, platform-wide)
+        Route::get('predictions',              [AdminPredictionController::class, 'index']);
+        Route::get('predictions/{prediction}', [AdminPredictionController::class, 'show']);
+
+        // Federated learning rounds
+        Route::get('federated-rounds',                          [AdminFederatedRoundController::class, 'index']);
+        Route::post('federated-rounds',                         [AdminFederatedRoundController::class, 'store']);
+        Route::get('federated-rounds/{flRound}',                [AdminFederatedRoundController::class, 'show']);
+        Route::post('federated-rounds/{flRound}/complete',      [AdminFederatedRoundController::class, 'complete']);
     });
 
     // ─────────────────────────────────────────────────────────────────────────
