@@ -2,7 +2,6 @@
 
 namespace App\Jobs;
 
-use App\Models\AiModel;
 use App\Models\Prediction;
 use App\Models\XaiResult;
 use Illuminate\Bus\Queueable;
@@ -112,63 +111,7 @@ class DispatchPredictionJob implements ShouldQueue
     }
 
     // ─────────────────────────────────────────────────────────────────────────
-    //  A6 Cross-Attention Fusion via Modal GPU (fast path — full pipeline on T4)
-    // ─────────────────────────────────────────────────────────────────────────
-    private function callA6ViaModal(
-        string $modalBase, Prediction $prediction, array $clinical,
-        string $mode, string $r2Key
-    ): void {
-        // Generate a short-lived presigned GET URL for Modal to pull the slide
-        $slideUrl = $this->generateR2PresignedGetUrl($r2Key, '+30 minutes');
-
-        $payload = [
-            'slide_url'     => $slideUrl,
-            'original_name' => $prediction->wsiUpload?->original_name ?? 'slide.svs',
-            'clinical'      => $clinical,
-            'mode'          => $mode,
-            'job_id'        => $prediction->job_id,
-        ];
-
-        Log::info("[BReCAI] Calling Modal /predict-a6-from-r2 for prediction #{$prediction->id}");
-
-        $response = Http::timeout(1500)
-            ->acceptJson()
-            ->asJson()
-            ->post(rtrim($modalBase, '/') . '/predict-a6-from-r2', $payload);
-
-        $this->processHttpResponse($response, $prediction, 'a6_fusion_modal');
-
-        // Delete the raw slide from R2 after successful processing
-        try {
-            Storage::disk('r2')->delete($r2Key);
-            Log::info("[BReCAI] Deleted slide from R2: {$r2Key}");
-        } catch (\Throwable $e) {
-            Log::warning("[BReCAI] Failed to delete R2 slide {$r2Key}: {$e->getMessage()}");
-        }
-    }
-
-    /** Generate a short-lived presigned GET URL for an R2 key (for Modal to pull). */
-    private function generateR2PresignedGetUrl(string $r2Key, string $duration = '+30 minutes'): string
-    {
-        $s3 = new \Aws\S3\S3Client([
-            'version'                 => 'latest',
-            'region'                  => 'auto',
-            'endpoint'                => config('services.r2.endpoint'),
-            'use_path_style_endpoint' => true,
-            'credentials'             => [
-                'key'    => config('services.r2.access_key'),
-                'secret' => config('services.r2.secret_key'),
-            ],
-        ]);
-        $cmd = $s3->getCommand('GetObject', [
-            'Bucket' => config('services.r2.bucket'),
-            'Key'    => $r2Key,
-        ]);
-        return (string) $s3->createPresignedRequest($cmd, $duration)->getUri();
-    }
-
-    // ─────────────────────────────────────────────────────────────────────────
-    //  A6 Cross-Attention Fusion via R2 (legacy HF flow)
+    //  A6 Cross-Attention Fusion via R2 (HF flow)
     // ─────────────────────────────────────────────────────────────────────────
     private function callA6ViaR2(
         string $base, ?string $hfToken,
@@ -180,20 +123,21 @@ class DispatchPredictionJob implements ShouldQueue
         $r2AccessKey = config('services.r2.access_key');
         $r2SecretKey = config('services.r2.secret_key');
 
-        $client = Http::timeout(1500); // 25 min — large SVS slides take time on CPU
+        $client = Http::timeout(1500)
+            ->asMultipart(); // HF endpoint expects Form() fields
         if ($hfToken) {
             $client = $client->withToken($hfToken);
         }
 
         $response = $client->post("{$base}/predict/a6/from-r2", [
-            'r2_endpoint'   => $r2Endpoint,
-            'r2_bucket'     => $r2Bucket,
-            'r2_key'        => $r2Key,
-            'r2_access_key' => $r2AccessKey,
-            'r2_secret_key' => $r2SecretKey,
-            'clinical_json' => json_encode($clinical),
-            'mode'          => $mode,
-            'job_id'        => $prediction->job_id,
+            ['name' => 'r2_endpoint',   'contents' => $r2Endpoint],
+            ['name' => 'r2_bucket',     'contents' => $r2Bucket],
+            ['name' => 'r2_key',        'contents' => $r2Key],
+            ['name' => 'r2_access_key', 'contents' => $r2AccessKey],
+            ['name' => 'r2_secret_key', 'contents' => $r2SecretKey],
+            ['name' => 'clinical_json', 'contents' => json_encode($clinical)],
+            ['name' => 'mode',          'contents' => $mode],
+            ['name' => 'job_id',        'contents' => $prediction->job_id],
         ]);
 
         $this->processHttpResponse($response, $prediction, 'a6_fusion_r2');
@@ -208,7 +152,7 @@ class DispatchPredictionJob implements ShouldQueue
     }
 
     // ─────────────────────────────────────────────────────────────────────────
-    //  A6 Cross-Attention Fusion (legacy local .pt)
+    //  A6 Cross-Attention Fusion (local .pt features file)
     // ─────────────────────────────────────────────────────────────────────────
     private function callA6(
         string $base, ?string $hfToken,
@@ -234,29 +178,7 @@ class DispatchPredictionJob implements ShouldQueue
     }
 
     // ─────────────────────────────────────────────────────────────────────────
-    //  Clinical-only via Modal GPU (fast path)
-    // ─────────────────────────────────────────────────────────────────────────
-    private function callClinicalViaModal(
-        string $modalBase, Prediction $prediction, array $clinical, string $mode
-    ): void {
-        $payload = [
-            'clinical' => $clinical,
-            'mode'     => $mode,
-            'job_id'   => $prediction->job_id,
-        ];
-
-        Log::info("[BReCAI] Calling Modal /predict-clinical for prediction #{$prediction->id}");
-
-        $response = Http::timeout(120)
-            ->acceptJson()
-            ->asJson()
-            ->post(rtrim($modalBase, '/') . '/predict-clinical', $payload);
-
-        $this->processHttpResponse($response, $prediction, 'clinical_only_modal');
-    }
-
-    // ─────────────────────────────────────────────────────────────────────────
-    //  Clinical-only (no WSI / no .pt file) — HF fallback
+    //  Clinical-only (no WSI / no .pt file)
     // ─────────────────────────────────────────────────────────────────────────
     private function callClinical(
         string $base, ?string $hfToken,
