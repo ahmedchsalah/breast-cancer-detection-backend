@@ -40,8 +40,8 @@
         <div class="body">
             <p class="greeting">Hello, <strong>Dr. {{ $doctor->name }}</strong></p>
             <p style="font-size:14px;color:#718096;margin-bottom:20px;line-height:1.7;">
-                Your clinical report has been generated and is attached to this email as an HTML file.
-                Please find the details below.
+                Your clinical report has been finalized and is ready for review.
+                You can view, print, or save it as PDF from the Reports section of the platform.
             </p>
 
             <div class="info-box">
