@@ -91,26 +91,15 @@ class DispatchPredictionJob implements ShouldQueue
 
         try {
             if ($hasR2Slide) {
-                $modalUrl = rtrim((string) config('services.modal.url'), '/');
-                if ($modalUrl !== '') {
-                    // ── A6 Full Fusion via Modal GPU (fast path) ─────────────
-                    $this->callA6ViaModal($modalUrl, $prediction, $clinical, $mode, $r2Key);
-                } else {
-                    // ── A6 Full Fusion via HF + R2 (legacy fallback) ─────────
-                    $this->callA6ViaR2($fastApiBase, $hfToken, $prediction, $clinical, $mode, $r2Key);
-                }
+                // ── A6 Full Fusion via HF + R2 slide ─────────────────────
+                $this->callA6ViaR2($fastApiBase, $hfToken, $prediction, $clinical, $mode, $r2Key);
             } elseif ($hasPtFile) {
-                // ── A6 Full Fusion via local .pt (legacy) ─────────────────────
+                // ── A6 Full Fusion via local .pt ──────────────────────────
                 $this->callA6($fastApiBase, $hfToken, $prediction, $clinical, $mode,
                               $featuresPath, $storageDisk);
             } else {
                 // ── Clinical-only ────────────────────────────────────────
-                $modalUrl = rtrim((string) config('services.modal.url'), '/');
-                if ($modalUrl !== '') {
-                    $this->callClinicalViaModal($modalUrl, $prediction, $clinical, $mode);
-                } else {
-                    $this->callClinical($fastApiBase, $hfToken, $prediction, $clinical, $mode);
-                }
+                $this->callClinical($fastApiBase, $hfToken, $prediction, $clinical, $mode);
             }
         } catch (\Throwable $e) {
             Log::error("[BReCAI] Prediction #{$prediction->id} failed: {$e->getMessage()}");
