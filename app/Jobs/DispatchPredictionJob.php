@@ -104,8 +104,13 @@ class DispatchPredictionJob implements ShouldQueue
                 $this->callA6($fastApiBase, $hfToken, $prediction, $clinical, $mode,
                               $featuresPath, $storageDisk);
             } else {
-                // ── Clinical-only fallback ────────────────────────────────────
-                $this->callClinical($fastApiBase, $hfToken, $prediction, $clinical, $mode);
+                // ── Clinical-only ────────────────────────────────────────
+                $modalUrl = rtrim((string) config('services.modal.url'), '/');
+                if ($modalUrl !== '') {
+                    $this->callClinicalViaModal($modalUrl, $prediction, $clinical, $mode);
+                } else {
+                    $this->callClinical($fastApiBase, $hfToken, $prediction, $clinical, $mode);
+                }
             }
         } catch (\Throwable $e) {
             Log::error("[BReCAI] Prediction #{$prediction->id} failed: {$e->getMessage()}");
@@ -240,7 +245,29 @@ class DispatchPredictionJob implements ShouldQueue
     }
 
     // ─────────────────────────────────────────────────────────────────────────
-    //  Clinical-only (no WSI / no .pt file)
+    //  Clinical-only via Modal GPU (fast path)
+    // ─────────────────────────────────────────────────────────────────────────
+    private function callClinicalViaModal(
+        string $modalBase, Prediction $prediction, array $clinical, string $mode
+    ): void {
+        $payload = [
+            'clinical' => $clinical,
+            'mode'     => $mode,
+            'job_id'   => $prediction->job_id,
+        ];
+
+        Log::info("[BReCAI] Calling Modal /predict-clinical for prediction #{$prediction->id}");
+
+        $response = Http::timeout(120)
+            ->acceptJson()
+            ->asJson()
+            ->post(rtrim($modalBase, '/') . '/predict-clinical', $payload);
+
+        $this->processHttpResponse($response, $prediction, 'clinical_only_modal');
+    }
+
+    // ─────────────────────────────────────────────────────────────────────────
+    //  Clinical-only (no WSI / no .pt file) — HF fallback
     // ─────────────────────────────────────────────────────────────────────────
     private function callClinical(
         string $base, ?string $hfToken,
