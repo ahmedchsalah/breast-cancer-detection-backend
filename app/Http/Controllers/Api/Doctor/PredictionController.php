@@ -225,10 +225,11 @@ class PredictionController extends Controller
         $examination->update(['status' => Examination::STATUS_PREDICTED]);
 
         // Determine dispatch mode:
-        //   - R2 slide (r2_key set)  → queue (A6 takes 3-5 min)
-        //   - .pt features file      → queue (A6 takes 3-5 min)
-        //   - Clinical-only (no WSI) → dispatch_sync (~30s, no queue worker needed)
+        //   - R2 slide (r2_key set)  → queue (SVS processing takes 10+ min on CPU)
+        //   - .pt features file      → dispatch_sync (HF responds in ~30s for pre-extracted features)
+        //   - Clinical-only (no WSI) → dispatch_sync (~5s)
         $hasWsi = false;
+        $hasR2Key = false;
         if ($validated['wsi_upload_id'] ?? null) {
             $wsiUpload = \App\Models\WsiUpload::find($validated['wsi_upload_id']);
             $hasR2Key  = !empty($wsiUpload?->r2_key);
@@ -238,11 +239,11 @@ class PredictionController extends Controller
             $hasWsi = $hasR2Key || $hasPtFile;
         }
 
-        if ($hasWsi) {
-            // A6 fusion (R2 slide or .pt file) — slow (3-5 min), use queue
+        if ($hasR2Key) {
+            // R2 slide (SVS) — genuinely slow (10-20 min), must use async queue
             dispatch(new \App\Jobs\DispatchPredictionJob($prediction));
         } else {
-            // Clinical-only — fast (~30s), run synchronously so no queue worker needed
+            // .pt features file OR clinical-only — HF responds in seconds, run synchronously
             dispatch_sync(new \App\Jobs\DispatchPredictionJob($prediction));
         }
 
