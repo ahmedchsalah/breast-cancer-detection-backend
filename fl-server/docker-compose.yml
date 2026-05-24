@@ -1,0 +1,20 @@
+services:
+  fl-server:
+    build: .
+    ports:
+      - "8001:8001"
+    volumes:
+      - ./weights:/app/weights
+      - ./logs:/app/logs
+    environment:
+      - FL_SECRET=${FL_SECRET:-changeme}
+      - SEPOLIA_RPC_URL=${SEPOLIA_RPC_URL:-}
+      - SEPOLIA_PRIVATE_KEY=${SEPOLIA_PRIVATE_KEY:-}
+      - CONTRACT_ADDRESS=${CONTRACT_ADDRESS:-}
+    restart: unless-stopped
+    networks:
+      - fl-network
+
+networks:
+  fl-network:
+    driver: bridge
