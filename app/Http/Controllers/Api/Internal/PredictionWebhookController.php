@@ -97,7 +97,22 @@ class PredictionWebhookController extends Controller
             'completed_at'         => now(),
         ]);
 
-        // Persist XAI results if provided
+        // Persist XAI results — handle both old format (xai.* fields) and new format (patch_attention, gate_*)
+        $data = $request->all();
+        $topFeatures = [];
+
+        // New format from /predict/a6 response
+        if (!empty($data['patch_attention'])) {
+            $topFeatures['top_patches'] = $data['patch_attention'];
+        }
+        if (isset($data['gate_img'], $data['gate_clin'])) {
+            $topFeatures['fusion_gate'] = [
+                'image_weight'    => round($data['gate_img'], 4),
+                'clinical_weight' => round($data['gate_clin'], 4),
+            ];
+        }
+
+        // Old format (xai.* fields)
         if (!empty($validated['xai'])) {
             XaiResult::updateOrCreate(
                 ['prediction_id' => $prediction->id],
@@ -107,9 +122,49 @@ class PredictionWebhookController extends Controller
                     'shap_plot_path' => $validated['xai']['shap_plot_path'] ?? null,
                     'shap_status'    => $validated['xai']['shap_status'] ?? 'pending',
                     'shap_values'    => $validated['xai']['shap_values'] ?? null,
-                    'top_features'   => $validated['xai']['top_features'] ?? null,
+                    'top_features'   => !empty($topFeatures) ? $topFeatures : ($validated['xai']['top_features'] ?? null),
                 ]
             );
+        } elseif (!empty($topFeatures)) {
+            // New format only (no xai wrapper)
+            XaiResult::updateOrCreate(
+                ['prediction_id' => $prediction->id],
+                [
+                    'top_features'   => $topFeatures,
+                    'shap_status'    => 'completed',
+                    'heatmap_status' => !empty($data['patch_attention']) ? 'completed' : 'pending',
+                ]
+            );
+        }
+
+        // Auto-conclude examination + auto-create report (same as DispatchPredictionJob)
+        if ($validated['status'] === 'completed') {
+            try {
+                $examination = $prediction->examination;
+                if ($examination && $examination->status === \App\Models\Examination::STATUS_PREDICTED) {
+                    $label = ($validated['is_lum_a'] ?? false) ? 'Luminal A' : 'Non-Luminal A';
+                    $conf = round(($validated['confidence_lum_a'] ?? 0) * 100, 1);
+                    $examination->update([
+                        'status'            => \App\Models\Examination::STATUS_CONCLUDED,
+                        'doctor_conclusion' => "AI Classification: {$label} ({$conf}% confidence). Auto-concluded.",
+                    ]);
+
+                    // Auto-create report
+                    $existingReport = \App\Models\Report::where('prediction_id', $prediction->id)->first();
+                    if (!$existingReport) {
+                        \App\Models\Report::create([
+                            'examination_id'  => $examination->id,
+                            'prediction_id'   => $prediction->id,
+                            'patient_id'      => $prediction->patient_id,
+                            'doctor_id'       => $examination->doctor_id,
+                            'organization_id' => $prediction->organization_id,
+                            'status'          => 'draft',
+                        ]);
+                    }
+                }
+            } catch (\Throwable $e) {
+                Log::warning("Webhook: Auto-report failed for prediction {$prediction->id}: {$e->getMessage()}");
+            }
         }
 
         Log::info("Webhook: Prediction {$prediction->id} marked as {$validated['status']}.");

@@ -111,7 +111,7 @@ class DispatchPredictionJob implements ShouldQueue
     }
 
     // ─────────────────────────────────────────────────────────────────────────
-    //  A6 Cross-Attention Fusion via R2 (HF flow)
+    //  A6 Cross-Attention Fusion via R2 (HF flow — fire-and-forget with webhook)
     // ─────────────────────────────────────────────────────────────────────────
     private function callA6ViaR2(
         string $base, ?string $hfToken,
@@ -123,32 +123,38 @@ class DispatchPredictionJob implements ShouldQueue
         $r2AccessKey = config('services.r2.access_key');
         $r2SecretKey = config('services.r2.secret_key');
 
-        $client = Http::timeout(1500)
-            ->asMultipart(); // HF endpoint expects Form() fields
+        // Build webhook URL for HF to call back when done
+        $webhookUrl = rtrim(config('app.url'), '/') . '/api/internal/predictions/' . $prediction->job_id . '/result';
+
+        // Fire-and-forget: send to HF with a short connect timeout but don't wait for response.
+        // HF will call our webhook when processing is complete (10-20 min later).
+        $client = Http::timeout(30) // Only wait 30s for the connection to establish
+            ->connectTimeout(15)
+            ->asMultipart();
         if ($hfToken) {
             $client = $client->withToken($hfToken);
         }
 
-        $response = $client->post("{$base}/predict/a6/from-r2", [
-            ['name' => 'r2_endpoint',   'contents' => $r2Endpoint],
-            ['name' => 'r2_bucket',     'contents' => $r2Bucket],
-            ['name' => 'r2_key',        'contents' => $r2Key],
-            ['name' => 'r2_access_key', 'contents' => $r2AccessKey],
-            ['name' => 'r2_secret_key', 'contents' => $r2SecretKey],
-            ['name' => 'clinical_json', 'contents' => json_encode($clinical)],
-            ['name' => 'mode',          'contents' => $mode],
-            ['name' => 'job_id',        'contents' => $prediction->job_id],
-        ]);
-
-        $this->processHttpResponse($response, $prediction, 'a6_fusion_r2');
-
-        // Delete the raw slide from R2 after successful processing
         try {
-            Storage::disk('r2')->delete($r2Key);
-            Log::info("[BReCAI] Deleted slide from R2: {$r2Key}");
-        } catch (\Throwable $e) {
-            Log::warning("[BReCAI] Failed to delete R2 slide {$r2Key}: {$e->getMessage()}");
+            $client->post("{$base}/predict/a6/from-r2", [
+                ['name' => 'r2_endpoint',   'contents' => $r2Endpoint],
+                ['name' => 'r2_bucket',     'contents' => $r2Bucket],
+                ['name' => 'r2_key',        'contents' => $r2Key],
+                ['name' => 'r2_access_key', 'contents' => $r2AccessKey],
+                ['name' => 'r2_secret_key', 'contents' => $r2SecretKey],
+                ['name' => 'clinical_json', 'contents' => json_encode($clinical)],
+                ['name' => 'mode',          'contents' => $mode],
+                ['name' => 'job_id',        'contents' => $prediction->job_id],
+                ['name' => 'webhook_url',   'contents' => $webhookUrl],
+            ]);
+        } catch (\Illuminate\Http\Client\ConnectionException $e) {
+            // Connection timeout is expected — HF accepted the request but we don't wait
+            Log::info("[BReCAI] R2 prediction #{$prediction->id} dispatched to HF (fire-and-forget). Webhook will deliver result.");
         }
+
+        // Don't process response here — webhook will handle it.
+        // Just mark as processing and return.
+        Log::info("[BReCAI] SVS prediction #{$prediction->id} sent to HF. Awaiting webhook callback at: {$webhookUrl}");
     }
 
     // ─────────────────────────────────────────────────────────────────────────

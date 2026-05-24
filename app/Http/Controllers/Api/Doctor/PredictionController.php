@@ -240,36 +240,13 @@ class PredictionController extends Controller
         }
 
         if ($hasR2Key) {
-            // R2 slide (SVS) — takes 10-20 min on HF CPU
-            // Return 202 immediately, then process after response is sent
-            // Uses register_shutdown_function to continue work after HTTP response
-            $predictionId = $prediction->id;
-            $response = response()->json([
-                'message'       => 'Prediction dispatched. SVS processing in progress.',
-                'prediction_id' => $prediction->id,
-                'job_id'        => $prediction->job_id,
-                'status'        => 'processing',
-            ], 202);
-
-            // Schedule the heavy work AFTER the response is sent to the client
-            app()->terminating(function () use ($prediction) {
-                try {
-                    (new \App\Jobs\DispatchPredictionJob($prediction))->handle();
-                } catch (\Throwable $e) {
-                    \Illuminate\Support\Facades\Log::error("[BReCAI] SVS prediction failed: {$e->getMessage()}");
-                    $prediction->update([
-                        'status'         => \App\Models\Prediction::STATUS_FAILED,
-                        'failure_reason' => $e->getMessage(),
-                        'completed_at'   => now(),
-                    ]);
-                }
-            });
-
-            return $response;
+            // R2 slide (SVS) — fire-and-forget to HF, webhook delivers result
+            // Run the job inline but it will just send the request and return immediately
+            dispatch_sync(new \App\Jobs\DispatchPredictionJob($prediction));
+        } else {
+            // .pt features file OR clinical-only — HF responds in seconds
+            dispatch_sync(new \App\Jobs\DispatchPredictionJob($prediction));
         }
-
-        // .pt features file OR clinical-only — HF responds in seconds, run inline
-        dispatch_sync(new \App\Jobs\DispatchPredictionJob($prediction));
 
         return response()->json([
             'message'       => 'Prediction dispatched. Results will be available shortly.',
