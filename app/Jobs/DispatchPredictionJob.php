@@ -232,6 +232,9 @@ class DispatchPredictionJob implements ShouldQueue
             // ── Save XAI data if returned ─────────────────────────────────────
             $this->saveXaiData($prediction, $data, $inferenceType);
 
+            // ── Auto-conclude examination and create report ───────────────────
+            $this->autoConcludeAndReport($prediction, $data);
+
         } else {
             throw new \RuntimeException(
                 "FastAPI returned non-completed status: " . json_encode($data)
@@ -279,5 +282,48 @@ class DispatchPredictionJob implements ShouldQueue
         );
 
         Log::info("[BReCAI] XAI data saved for prediction #{$prediction->id}");
+    }
+
+    // ─────────────────────────────────────────────────────────────────────────
+    //  Auto-conclude examination and generate report after prediction
+    // ─────────────────────────────────────────────────────────────────────────
+    private function autoConcludeAndReport(Prediction $prediction, array $data): void
+    {
+        try {
+            $examination = $prediction->examination;
+            if (! $examination) return;
+
+            // Auto-conclude if still in 'predicted' status
+            if ($examination->status === \App\Models\Examination::STATUS_PREDICTED) {
+                $label = $data['is_lum_a'] ? 'Luminal A' : 'Non-Luminal A';
+                $conf  = round(($data['confidence_lum_a'] ?? 0) * 100, 1);
+
+                $examination->update([
+                    'status'            => \App\Models\Examination::STATUS_CONCLUDED,
+                    'doctor_conclusion' => "AI Classification: {$label} ({$conf}% confidence). Auto-concluded by BReCAI system.",
+                ]);
+
+                Log::info("[BReCAI] Examination #{$examination->id} auto-concluded.");
+            }
+
+            // Auto-create draft report if none exists
+            $existingReport = \App\Models\Report::where('prediction_id', $prediction->id)->first();
+            if (! $existingReport && $examination->status === \App\Models\Examination::STATUS_CONCLUDED) {
+                \App\Models\Report::create([
+                    'examination_id'  => $examination->id,
+                    'prediction_id'   => $prediction->id,
+                    'patient_id'      => $prediction->patient_id,
+                    'doctor_id'       => $examination->doctor_id,
+                    'organization_id' => $prediction->organization_id,
+                    'status'          => 'draft',
+                    'notes'           => null,
+                ]);
+
+                Log::info("[BReCAI] Draft report auto-created for prediction #{$prediction->id}.");
+            }
+        } catch (\Throwable $e) {
+            // Don't fail the job if report creation fails — prediction is already saved
+            Log::warning("[BReCAI] Auto-report failed for prediction #{$prediction->id}: {$e->getMessage()}");
+        }
     }
 }
