@@ -114,10 +114,13 @@ class ReportController extends Controller
             'prediction.xaiResult',
         ]);
 
-        // Attach presigned heatmap URL if available
+        // Attach presigned URLs for heatmap and segmentation
         $reportArr = $report->toArray();
-        $heatmapPath = $report->prediction?->xaiResult?->heatmap_path;
-        if ($heatmapPath) {
+        $xaiResult = $report->prediction?->xaiResult;
+        $heatmapPath = $xaiResult?->heatmap_path;
+        $segmentationPath = $xaiResult?->segmentation_path;
+
+        if ($heatmapPath || $segmentationPath) {
             try {
                 $s3 = new \Aws\S3\S3Client([
                     'version'                 => 'latest',
@@ -129,14 +132,16 @@ class ReportController extends Controller
                         'secret' => config('services.r2.secret_key'),
                     ],
                 ]);
-                $cmd = $s3->getCommand('GetObject', [
-                    'Bucket' => config('services.r2.bucket'),
-                    'Key'    => $heatmapPath,
-                ]);
-                $heatmapUrl = (string) $s3->createPresignedRequest($cmd, '+24 hours')->getUri();
-                $reportArr['heatmap_url'] = $heatmapUrl;
+                if ($heatmapPath) {
+                    $cmd = $s3->getCommand('GetObject', ['Bucket' => config('services.r2.bucket'), 'Key' => $heatmapPath]);
+                    $reportArr['heatmap_url'] = (string) $s3->createPresignedRequest($cmd, '+24 hours')->getUri();
+                }
+                if ($segmentationPath) {
+                    $cmd = $s3->getCommand('GetObject', ['Bucket' => config('services.r2.bucket'), 'Key' => $segmentationPath]);
+                    $reportArr['segmentation_url'] = (string) $s3->createPresignedRequest($cmd, '+24 hours')->getUri();
+                }
             } catch (\Throwable $e) {
-                \Illuminate\Support\Facades\Log::warning("Failed to presign heatmap for report {$report->id}: {$e->getMessage()}");
+                \Illuminate\Support\Facades\Log::warning("Failed to presign XAI images for report {$report->id}: {$e->getMessage()}");
             }
         }
 
@@ -344,15 +349,32 @@ class ReportController extends Controller
 
         // Try to fetch heatmap image from R2 (if available) and embed as base64
         $heatmapBase64 = '';
+        $segmentationBase64 = '';
         $xaiR2Key = $xai?->heatmap_path;
-        if ($xaiR2Key) {
+        $segR2Key = $xai?->segmentation_path;
+
+        if ($xaiR2Key || $segR2Key) {
             try {
-                $heatmapBytes = \Illuminate\Support\Facades\Storage::disk('r2')->get($xaiR2Key);
-                if ($heatmapBytes) {
-                    $heatmapBase64 = 'data:image/png;base64,' . base64_encode($heatmapBytes);
+                $s3 = new \Aws\S3\S3Client([
+                    'version'                 => 'latest',
+                    'region'                  => 'auto',
+                    'endpoint'                => config('services.r2.endpoint'),
+                    'use_path_style_endpoint' => true,
+                    'credentials'             => [
+                        'key'    => config('services.r2.access_key'),
+                        'secret' => config('services.r2.secret_key'),
+                    ],
+                ]);
+                if ($xaiR2Key) {
+                    $bytes = $s3->getObject(['Bucket' => config('services.r2.bucket'), 'Key' => $xaiR2Key])['Body']->getContents();
+                    $heatmapBase64 = 'data:image/png;base64,' . base64_encode($bytes);
+                }
+                if ($segR2Key) {
+                    $bytes = $s3->getObject(['Bucket' => config('services.r2.bucket'), 'Key' => $segR2Key])['Body']->getContents();
+                    $segmentationBase64 = 'data:image/png;base64,' . base64_encode($bytes);
                 }
             } catch (\Throwable $e) {
-                \Illuminate\Support\Facades\Log::warning("[Report] Failed to fetch heatmap: {$e->getMessage()}");
+                \Illuminate\Support\Facades\Log::warning("[Report] Failed to fetch XAI images: {$e->getMessage()}");
             }
         }
 
@@ -369,8 +391,12 @@ class ReportController extends Controller
         }
 
         $heatmapSection = $heatmapBase64
-            ? "<div class='heatmap-section'><img src='{$heatmapBase64}' alt='Top patches grid' style='width:100%;max-width:600px;border-radius:8px;border:1px solid #e2e8f0;' /><p class='heatmap-caption'>Top-20 patches the model focused on. Each tile is a real region from the WSI labeled with its attention score. Gold/silver/bronze borders mark the top 3 most-attended regions.</p></div>"
+            ? "<div class='heatmap-section'><img src='{$heatmapBase64}' alt='Top patches grid' style='width:100%;max-width:600px;border-radius:8px;border:1px solid #e2e8f0;' /><p class='heatmap-caption'>Top-20 patches the model focused on. Each tile is a real region from the WSI labeled with its attention score.</p></div>"
             : "<p style='font-size:12px;color:#94a3b8;font-style:italic;'>Top-attended patches visualization not available for this prediction (clinical-only mode).</p>";
+
+        $segmentationSection = $segmentationBase64
+            ? "<div class='section'><div class='section-title'>Tissue Segmentation Map</div><div class='heatmap-section'><img src='{$segmentationBase64}' alt='Tissue segmentation map' style='width:100%;max-width:600px;border-radius:8px;border:1px solid #e2e8f0;' /><p class='heatmap-caption'>Numbered circles show the top-attended tissue regions on the slide thumbnail. Gold = highest attention.</p></div></div>"
+            : "";
 
         $patchesTable = $patchesRows
             ? "<table class='patches-table'><thead><tr><th>Rank</th><th>Patch ID</th><th>Attention Score</th></tr></thead><tbody>{$patchesRows}</tbody></table>"
@@ -526,6 +552,9 @@ body { font-family: 'DejaVu Sans', Arial, sans-serif; margin: 0; padding: 0; col
     <div class="gate-legend">Gate weights show how the model balanced histopathology image features (CONCH) vs clinical biomarkers (ER/PR/HER2/Stage/Age) to reach this classification.</div>
   </div>
 </div>
+
+<!-- Tissue Segmentation Map -->
+{$segmentationSection}
 
 <!-- Top Histopathology Patches Image -->
 <div class="section">
