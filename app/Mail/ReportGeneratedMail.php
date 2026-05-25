@@ -38,6 +38,11 @@ class ReportGeneratedMail extends Mailable
 
     public function attachments(): array
     {
-        return [];
+        return [
+            \Illuminate\Mail\Mailables\Attachment::fromData(
+                fn () => base64_decode($this->pdfContent),
+                $this->pdfFilename
+            )->withMime('application/pdf'),
+        ];
     }
 }

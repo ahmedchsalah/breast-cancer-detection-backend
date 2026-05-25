@@ -97,9 +97,10 @@ class PredictionWebhookController extends Controller
             'completed_at'         => now(),
         ]);
 
-        // Persist XAI results — handle both old format (xai.* fields) and new format (patch_attention, gate_*)
+        // Persist XAI results — handle both old format (xai.* fields) and new format (patch_attention, gate_*, xai_r2_key)
         $data = $request->all();
         $topFeatures = [];
+        $heatmapPath = null;
 
         // New format from /predict/a6 response
         if (!empty($data['patch_attention'])) {
@@ -110,6 +111,10 @@ class PredictionWebhookController extends Controller
                 'image_weight'    => round($data['gate_img'], 4),
                 'clinical_weight' => round($data['gate_clin'], 4),
             ];
+        }
+        // R2 heatmap key (uploaded by HF for SVS predictions)
+        if (!empty($data['xai_r2_key'])) {
+            $heatmapPath = $data['xai_r2_key'];
         }
 
         // Old format (xai.* fields)
@@ -125,14 +130,15 @@ class PredictionWebhookController extends Controller
                     'top_features'   => !empty($topFeatures) ? $topFeatures : ($validated['xai']['top_features'] ?? null),
                 ]
             );
-        } elseif (!empty($topFeatures)) {
+        } elseif (!empty($topFeatures) || $heatmapPath) {
             // New format only (no xai wrapper)
             XaiResult::updateOrCreate(
                 ['prediction_id' => $prediction->id],
                 [
                     'top_features'   => $topFeatures,
                     'shap_status'    => 'completed',
-                    'heatmap_status' => !empty($data['patch_attention']) ? 'completed' : 'pending',
+                    'heatmap_path'   => $heatmapPath,
+                    'heatmap_status' => $heatmapPath ? 'completed' : (!empty($data['patch_attention']) ? 'completed' : 'pending'),
                 ]
             );
         }

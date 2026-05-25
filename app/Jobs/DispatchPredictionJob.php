@@ -274,7 +274,10 @@ class DispatchPredictionJob implements ShouldQueue
             ];
         }
 
-        if (empty($topFeatures)) {
+        // R2 heatmap key (uploaded by HF for SVS predictions)
+        $heatmapPath = $data['xai_r2_key'] ?? null;
+
+        if (empty($topFeatures) && !$heatmapPath) {
             return; // Nothing to save
         }
 
@@ -283,7 +286,8 @@ class DispatchPredictionJob implements ShouldQueue
             [
                 'top_features'  => $topFeatures,
                 'shap_status'   => 'completed',
-                'heatmap_status'=> empty($data['patch_attention']) ? 'pending' : 'completed',
+                'heatmap_path'  => $heatmapPath,
+                'heatmap_status'=> $heatmapPath ? 'completed' : (empty($data['patch_attention']) ? 'pending' : 'completed'),
             ]
         );
 

@@ -77,6 +77,30 @@ class XaiResultController extends Controller
             ], 404);
         }
 
+        // If we have an R2 heatmap path, generate a presigned URL for the doctor to view
+        $heatmapUrl = null;
+        if ($xai->heatmap_path) {
+            try {
+                $s3 = new \Aws\S3\S3Client([
+                    'version'                 => 'latest',
+                    'region'                  => 'auto',
+                    'endpoint'                => config('services.r2.endpoint'),
+                    'use_path_style_endpoint' => true,
+                    'credentials'             => [
+                        'key'    => config('services.r2.access_key'),
+                        'secret' => config('services.r2.secret_key'),
+                    ],
+                ]);
+                $cmd = $s3->getCommand('GetObject', [
+                    'Bucket' => config('services.r2.bucket'),
+                    'Key'    => $xai->heatmap_path,
+                ]);
+                $heatmapUrl = (string) $s3->createPresignedRequest($cmd, '+24 hours')->getUri();
+            } catch (\Throwable $e) {
+                \Illuminate\Support\Facades\Log::warning("Failed to presign heatmap: {$e->getMessage()}");
+            }
+        }
+
         return response()->json([
             'prediction_id'  => $prediction->id,
             'is_lum_a'       => $prediction->is_lum_a,
@@ -84,6 +108,7 @@ class XaiResultController extends Controller
             'confidence_non_lum_a' => $prediction->confidence_non_lum_a,
             'xai' => [
                 'heatmap_path'  => $xai->heatmap_path,
+                'heatmap_url'   => $heatmapUrl,
                 'heatmap_status'=> $xai->heatmap_status,
                 'shap_plot_path'=> $xai->shap_plot_path,
                 'shap_status'   => $xai->shap_status,

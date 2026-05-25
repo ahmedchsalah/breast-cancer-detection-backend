@@ -250,23 +250,26 @@ class ReportController extends Controller
 
         $report->update(['status' => Report::STATUS_FINAL]);
 
-        // Send report to doctor via email
+        // Send report to doctor via email with PDF attached
         $doctor = auth()->user();
         try {
-            $report->load(['patient', 'prediction', 'examination']);
+            $report->load(['patient', 'prediction', 'examination', 'prediction.xaiResult']);
 
-            // Generate HTML report content (same as frontend generates)
+            // Generate HTML report content
             $htmlContent = $this->generateReportHtml($report, $doctor);
-            $b64Content  = base64_encode($htmlContent);
-            $filename    = "report-{$report->patient?->patient_identifier}-{$report->id}.html";
+
+            // Convert HTML to real PDF using dompdf
+            $pdf = \Barryvdh\DomPDF\Facade\Pdf::loadHTML($htmlContent)->setPaper('a4', 'portrait');
+            $pdfBytes = $pdf->output();
+            $b64Content = base64_encode($pdfBytes);
+            $filename = "report-{$report->patient?->patient_identifier}-{$report->id}.pdf";
 
             \Illuminate\Support\Facades\Mail::to($doctor->email)
                 ->send(new \App\Mail\ReportGeneratedMail($report, $doctor, $b64Content, $filename));
 
-            \Illuminate\Support\Facades\Log::info("[Report] Email sent to {$doctor->email} for report #{$report->id}");
+            \Illuminate\Support\Facades\Log::info("[Report] PDF email sent to {$doctor->email} for report #{$report->id}");
         } catch (\Throwable $e) {
             \Illuminate\Support\Facades\Log::warning("[Report] Email failed for report #{$report->id}: {$e->getMessage()}");
-            // Don't fail the finalization if email fails
         }
 
         return response()->json(['message' => 'Report finalized and sent to your email.', 'report' => $report->fresh()]);
@@ -419,10 +422,6 @@ HTML . ($report->notes ? "<div class='section'><div class='section-title'>Clinic
     public function destroy(Report $report): JsonResponse
     {
         $this->ensureOwnership($report);
-
-        if ($report->status === Report::STATUS_FINAL) {
-            return response()->json(['message' => 'A finalized report cannot be deleted.'], 422);
-        }
 
         if ($report->file_path) {
             Storage::disk('local')->delete($report->file_path);
