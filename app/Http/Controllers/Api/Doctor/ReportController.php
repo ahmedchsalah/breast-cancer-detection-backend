@@ -369,8 +369,8 @@ class ReportController extends Controller
         }
 
         $heatmapSection = $heatmapBase64
-            ? "<div class='heatmap-section'><img src='{$heatmapBase64}' alt='XAI Heatmap' style='width:100%;max-width:520px;border-radius:8px;border:1px solid #e2e8f0;' /><p class='heatmap-caption'>Top-attention regions identified by the model on the histopathology slide. Brighter areas indicate higher diagnostic relevance.</p></div>"
-            : "<p style='font-size:12px;color:#94a3b8;font-style:italic;'>Heatmap visualization not available for this prediction.</p>";
+            ? "<div class='heatmap-section'><img src='{$heatmapBase64}' alt='Top patches grid' style='width:100%;max-width:600px;border-radius:8px;border:1px solid #e2e8f0;' /><p class='heatmap-caption'>Top-20 patches the model focused on. Each tile is a real region from the WSI labeled with its attention score. Gold/silver/bronze borders mark the top 3 most-attended regions.</p></div>"
+            : "<p style='font-size:12px;color:#94a3b8;font-style:italic;'>Top-attended patches visualization not available for this prediction (clinical-only mode).</p>";
 
         $patchesTable = $patchesRows
             ? "<table class='patches-table'><thead><tr><th>Rank</th><th>Patch ID</th><th>Attention Score</th></tr></thead><tbody>{$patchesRows}</tbody></table>"
@@ -527,16 +527,10 @@ body { font-family: 'DejaVu Sans', Arial, sans-serif; margin: 0; padding: 0; col
   </div>
 </div>
 
-<!-- Segmentation Heatmap -->
+<!-- Top Histopathology Patches Image -->
 <div class="section">
-  <div class="section-title">Histopathology Segmentation & Attention Heatmap</div>
+  <div class="section-title">Top-Attended Histopathology Patches</div>
   {$heatmapSection}
-</div>
-
-<!-- Top Patches Table -->
-<div class="section">
-  <div class="section-title">Top Diagnostic Regions (Patch Attention Ranking)</div>
-  {$patchesTable}
 </div>
 
 {$clinicalNotes}
