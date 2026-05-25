@@ -227,4 +227,40 @@ class AdminFederatedRoundController extends Controller
             'round'   => $flRound->fresh()->load('aiModel:id,name,version'),
         ]);
     }
+
+    // ============================================================
+    //  CANCEL — admin can cancel any non-completed round
+    // ============================================================
+
+    public function cancel(FlRound $flRound): JsonResponse
+    {
+        if ($flRound->status === 'completed') {
+            return response()->json(['message' => 'Cannot cancel a completed round.'], 422);
+        }
+
+        $flRound->update([
+            'status'   => 'failed',
+            'ended_at' => now(),
+        ]);
+
+        return response()->json([
+            'message' => "Round #{$flRound->round_number} cancelled.",
+            'round'   => $flRound->fresh(),
+        ]);
+    }
+
+    // ============================================================
+    //  DESTROY — hard delete (only failed/cancelled rounds)
+    // ============================================================
+
+    public function destroy(FlRound $flRound): JsonResponse
+    {
+        if (in_array($flRound->status, ['training', 'aggregating'])) {
+            return response()->json(['message' => 'Cannot delete an active round. Cancel it first.'], 422);
+        }
+
+        $flRound->delete();
+
+        return response()->json(['message' => 'Round deleted.']);
+    }
 }

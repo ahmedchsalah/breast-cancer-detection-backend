@@ -167,6 +167,8 @@ Route::middleware('auth:sanctum')->group(function () {
         Route::post('federated-rounds',                         [AdminFederatedRoundController::class, 'store']);
         Route::get('federated-rounds/{flRound}',                [AdminFederatedRoundController::class, 'show']);
         Route::post('federated-rounds/{flRound}/complete',      [AdminFederatedRoundController::class, 'complete']);
+        Route::post('federated-rounds/{flRound}/cancel',        [AdminFederatedRoundController::class, 'cancel']);
+        Route::delete('federated-rounds/{flRound}',             [AdminFederatedRoundController::class, 'destroy']);
     });
 
     // ─────────────────────────────────────────────────────────────────────────
