@@ -77,9 +77,9 @@ class XaiResultController extends Controller
             ], 404);
         }
 
-        // If we have an R2 heatmap path, generate a presigned URL for the doctor to view
-        $heatmapUrl = null;
-        if ($xai->heatmap_path) {
+        // Generate presigned URLs for both heatmap and segmentation
+        $s3 = null;
+        if ($xai->heatmap_path || $xai->segmentation_path) {
             try {
                 $s3 = new \Aws\S3\S3Client([
                     'version'                 => 'latest',
@@ -91,13 +91,28 @@ class XaiResultController extends Controller
                         'secret' => config('services.r2.secret_key'),
                     ],
                 ]);
-                $cmd = $s3->getCommand('GetObject', [
-                    'Bucket' => config('services.r2.bucket'),
-                    'Key'    => $xai->heatmap_path,
-                ]);
+            } catch (\Throwable $e) {
+                \Illuminate\Support\Facades\Log::warning("Failed to init S3 client: {$e->getMessage()}");
+            }
+        }
+
+        $heatmapUrl = null;
+        if ($s3 && $xai->heatmap_path) {
+            try {
+                $cmd = $s3->getCommand('GetObject', ['Bucket' => config('services.r2.bucket'), 'Key' => $xai->heatmap_path]);
                 $heatmapUrl = (string) $s3->createPresignedRequest($cmd, '+24 hours')->getUri();
             } catch (\Throwable $e) {
                 \Illuminate\Support\Facades\Log::warning("Failed to presign heatmap: {$e->getMessage()}");
+            }
+        }
+
+        $segmentationUrl = null;
+        if ($s3 && $xai->segmentation_path) {
+            try {
+                $cmd = $s3->getCommand('GetObject', ['Bucket' => config('services.r2.bucket'), 'Key' => $xai->segmentation_path]);
+                $segmentationUrl = (string) $s3->createPresignedRequest($cmd, '+24 hours')->getUri();
+            } catch (\Throwable $e) {
+                \Illuminate\Support\Facades\Log::warning("Failed to presign segmentation: {$e->getMessage()}");
             }
         }
 
@@ -107,13 +122,15 @@ class XaiResultController extends Controller
             'confidence_lum_a'     => $prediction->confidence_lum_a,
             'confidence_non_lum_a' => $prediction->confidence_non_lum_a,
             'xai' => [
-                'heatmap_path'  => $xai->heatmap_path,
-                'heatmap_url'   => $heatmapUrl,
-                'heatmap_status'=> $xai->heatmap_status,
-                'shap_plot_path'=> $xai->shap_plot_path,
-                'shap_status'   => $xai->shap_status,
-                'shap_values'   => $xai->shap_values,
-                'top_features'  => $xai->top_features,
+                'heatmap_path'      => $xai->heatmap_path,
+                'heatmap_url'       => $heatmapUrl,
+                'segmentation_path' => $xai->segmentation_path,
+                'segmentation_url'  => $segmentationUrl,
+                'heatmap_status'    => $xai->heatmap_status,
+                'shap_plot_path'    => $xai->shap_plot_path,
+                'shap_status'       => $xai->shap_status,
+                'shap_values'       => $xai->shap_values,
+                'top_features'      => $xai->top_features,
             ],
         ]);
     }

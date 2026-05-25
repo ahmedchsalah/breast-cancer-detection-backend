@@ -117,6 +117,9 @@ class PredictionWebhookController extends Controller
             $heatmapPath = $data['xai_r2_key'];
         }
 
+        // R2 segmentation overlay key
+        $segmentationPath = $data['segmentation_r2_key'] ?? null;
+
         // Old format (xai.* fields)
         if (!empty($validated['xai'])) {
             XaiResult::updateOrCreate(
@@ -135,10 +138,11 @@ class PredictionWebhookController extends Controller
             XaiResult::updateOrCreate(
                 ['prediction_id' => $prediction->id],
                 [
-                    'top_features'   => $topFeatures,
-                    'shap_status'    => 'completed',
-                    'heatmap_path'   => $heatmapPath,
-                    'heatmap_status' => $heatmapPath ? 'completed' : (!empty($data['patch_attention']) ? 'completed' : 'pending'),
+                    'top_features'      => $topFeatures,
+                    'shap_status'       => 'completed',
+                    'heatmap_path'      => $heatmapPath,
+                    'segmentation_path' => $segmentationPath,
+                    'heatmap_status'    => $heatmapPath ? 'completed' : (!empty($data['patch_attention']) ? 'completed' : 'pending'),
                 ]
             );
         }
