@@ -60,6 +60,128 @@ class FederatedRoundController extends Controller
     }
 
     // ============================================================
+    //  CURRENT INVITATION (for the logged-in instructor)
+    // ============================================================
+
+    public function current(): JsonResponse
+    {
+        $instructor = auth()->user();
+
+        // Find the most recent invitation for an active round
+        $invitation = \App\Models\FlRoundInvitation::where('instructor_id', $instructor->id)
+            ->whereHas('flRound', function ($q) {
+                $q->whereIn('status', ['initiated', 'training', 'aggregating']);
+            })
+            ->with(['flRound.aiModel:id,name,version'])
+            ->orderByDesc('created_at')
+            ->first();
+
+        if (!$invitation) {
+            // No active invitation. Return last completed round info.
+            $lastCompleted = FlRound::where('status', 'completed')
+                ->orderByDesc('round_number')
+                ->first();
+            return response()->json([
+                'state' => 'no_active',
+                'last_completed' => $lastCompleted ? [
+                    'round_number' => $lastCompleted->round_number,
+                    'completed_at' => $lastCompleted->ended_at,
+                    'global_accuracy' => $lastCompleted->global_accuracy,
+                ] : null,
+            ]);
+        }
+
+        $round = $invitation->flRound;
+        $stateMap = [
+            'pending' => 'invitation',
+            'accepted' => 'accepted',
+            'declined' => 'declined',
+            'submitted' => 'completed',
+        ];
+
+        // Aggregate counts
+        $accepted = \App\Models\FlRoundInvitation::where('fl_round_id', $round->id)->where('status', 'accepted')->count();
+        $submitted = \App\Models\FlRoundInvitation::where('fl_round_id', $round->id)->where('status', 'submitted')->count();
+        $total = \App\Models\FlRoundInvitation::where('fl_round_id', $round->id)->count();
+
+        return response()->json([
+            'state' => $stateMap[$invitation->status] ?? 'unknown',
+            'round' => [
+                'id' => $round->id,
+                'round_number' => $round->round_number,
+                'status' => $round->status,
+                'ai_model' => $round->aiModel,
+                'started_at' => $round->started_at,
+                'previous_global_accuracy' => $round->global_accuracy,
+            ],
+            'invitation' => [
+                'id' => $invitation->id,
+                'status' => $invitation->status,
+                'responded_at' => $invitation->responded_at,
+                'submitted_at' => $invitation->submitted_at,
+                'local_accuracy' => $invitation->local_accuracy,
+                'local_loss' => $invitation->local_loss,
+                'weights_hash' => $invitation->weights_hash,
+            ],
+            'participation' => [
+                'accepted' => $accepted,
+                'submitted' => $submitted,
+                'total_invited' => $total,
+            ],
+        ]);
+    }
+
+    // ============================================================
+    //  SUBMIT CONTRIBUTION (after local training)
+    // ============================================================
+
+    public function submitContribution(Request $request): JsonResponse
+    {
+        $validated = $request->validate([
+            'invitation_id' => 'required|integer|exists:fl_round_invitations,id',
+            'local_accuracy' => 'required|numeric|between:0,1',
+            'local_loss' => 'required|numeric|min:0',
+            'weights_hash' => 'required|string|max:128',
+            'samples_used' => 'nullable|integer|min:0',
+        ]);
+
+        $instructor = auth()->user();
+        $invitation = \App\Models\FlRoundInvitation::where('id', $validated['invitation_id'])
+            ->where('instructor_id', $instructor->id)
+            ->first();
+
+        if (!$invitation) {
+            return response()->json(['message' => 'Invitation not found.'], 404);
+        }
+
+        if ($invitation->status !== 'accepted') {
+            return response()->json(['message' => 'You must accept the invitation first.'], 422);
+        }
+
+        $invitation->update([
+            'status' => 'submitted',
+            'submitted_at' => now(),
+            'local_accuracy' => $validated['local_accuracy'],
+            'local_loss' => $validated['local_loss'],
+            'weights_hash' => $validated['weights_hash'],
+        ]);
+
+        // Compute delta vs global
+        $globalPrev = $invitation->flRound->global_accuracy;
+        $delta = $globalPrev !== null ? round(($validated['local_accuracy'] - $globalPrev) * 100, 2) : null;
+
+        return response()->json([
+            'message' => 'Contribution submitted successfully.',
+            'invitation' => $invitation->fresh(),
+            'metrics' => [
+                'local_accuracy' => $validated['local_accuracy'],
+                'previous_global_accuracy' => $globalPrev,
+                'delta_percentage_points' => $delta,
+            ],
+        ]);
+    }
+
+    // ============================================================
     //  SHOW
     // ============================================================
 

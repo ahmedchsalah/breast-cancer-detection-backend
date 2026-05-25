@@ -106,6 +106,37 @@ class AdminFederatedRoundController extends Controller
             'started_at'   => now(),
         ]);
 
+        // Send invitations to all instructors with active organizations
+        try {
+            $instructors = \App\Models\User::role('instructor')
+                ->whereNotNull('organization_id')
+                ->whereHas('organization', fn ($q) => $q->where('status', 'active'))
+                ->where('email_verified_at', '!=', null)
+                ->get();
+
+            $frontendUrl = rtrim(config('app.frontend_url') ?? env('FRONTEND_URL', 'https://brecai-fed-react.vercel.app'), '/');
+
+            foreach ($instructors as $instructor) {
+                $invitation = \App\Models\FlRoundInvitation::create([
+                    'fl_round_id'   => $round->id,
+                    'instructor_id' => $instructor->id,
+                ]);
+
+                $approveUrl = "{$frontendUrl}/fl-invite/{$invitation->token}";
+
+                try {
+                    \Illuminate\Support\Facades\Mail::to($instructor->email)
+                        ->send(new \App\Mail\FlRoundInvitationMail($invitation, $instructor, $approveUrl));
+                } catch (\Throwable $me) {
+                    \Illuminate\Support\Facades\Log::warning("[FL] Email failed for instructor {$instructor->id}: {$me->getMessage()}");
+                }
+            }
+
+            \Illuminate\Support\Facades\Log::info("[FL] Round #{$round->round_number} created, {$instructors->count()} invitations sent.");
+        } catch (\Throwable $e) {
+            \Illuminate\Support\Facades\Log::warning("[FL] Failed to send invitations: {$e->getMessage()}");
+        }
+
         return response()->json($round->load('aiModel:id,name,version'), 201);
     }
 

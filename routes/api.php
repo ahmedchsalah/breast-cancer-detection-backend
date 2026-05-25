@@ -82,6 +82,12 @@ Route::prefix('internal')->name('internal.')->group(function () {
 Route::post('/payment/webhook', [ChargilyWebhookController::class, 'handle']);
 
 // ─────────────────────────────────────────────────────────────────────────────
+// FL ROUND INVITATIONS — public, token-based (no auth)
+// ─────────────────────────────────────────────────────────────────────────────
+Route::get('/public/fl-invite/{token}',      [\App\Http\Controllers\Api\Public\FlInvitationController::class, 'show']);
+Route::post('/public/fl-invite/{token}/respond', [\App\Http\Controllers\Api\Public\FlInvitationController::class, 'respond']);
+
+// ─────────────────────────────────────────────────────────────────────────────
 // PROTECTED — Requires valid Sanctum token (via HttpOnly cookie or Bearer)
 // ─────────────────────────────────────────────────────────────────────────────
 Route::middleware('auth:sanctum')->group(function () {
@@ -292,6 +298,8 @@ Route::middleware('auth:sanctum')->group(function () {
 
         // FL rounds
         Route::get('rounds',                            [FederatedRoundController::class, 'index']);
+        Route::get('rounds/current',                    [FederatedRoundController::class, 'current']);
+        Route::post('rounds/submit-contribution',       [FederatedRoundController::class, 'submitContribution']);
         Route::get('rounds/{flRound}',                  [FederatedRoundController::class, 'show']);
         Route::post('rounds',                           [FederatedRoundController::class, 'store']);
         Route::post('rounds/{flRound}/complete',        [FederatedRoundController::class, 'complete']);
