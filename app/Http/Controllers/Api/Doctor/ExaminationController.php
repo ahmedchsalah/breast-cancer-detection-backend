@@ -336,13 +336,18 @@ class ExaminationController extends Controller
     {
         $this->ensureOwnership($examination);
 
-        if ($examination->status !== Examination::STATUS_DRAFT) {
-            return response()->json(['message' => 'Only draft examinations can be deleted.'], 422);
+        // Cascade-delete: prediction, xai, report all linked to examination
+        if ($examination->prediction) {
+            $examination->prediction->xaiResult?->delete();
+            $examination->prediction->delete();
+        }
+        if (method_exists($examination, 'report')) {
+            $examination->report?->delete();
         }
 
         $examination->delete();
 
-        return response()->json(['message' => 'Examination deleted.']);
+        return response()->json(['message' => 'Examination and all associated data deleted.']);
     }
 
     private function ensureOwnership(Examination $examination): void

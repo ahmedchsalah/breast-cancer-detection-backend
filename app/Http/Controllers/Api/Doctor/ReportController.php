@@ -114,7 +114,33 @@ class ReportController extends Controller
             'prediction.xaiResult',
         ]);
 
-        return response()->json($report);
+        // Attach presigned heatmap URL if available
+        $reportArr = $report->toArray();
+        $heatmapPath = $report->prediction?->xaiResult?->heatmap_path;
+        if ($heatmapPath) {
+            try {
+                $s3 = new \Aws\S3\S3Client([
+                    'version'                 => 'latest',
+                    'region'                  => 'auto',
+                    'endpoint'                => config('services.r2.endpoint'),
+                    'use_path_style_endpoint' => true,
+                    'credentials'             => [
+                        'key'    => config('services.r2.access_key'),
+                        'secret' => config('services.r2.secret_key'),
+                    ],
+                ]);
+                $cmd = $s3->getCommand('GetObject', [
+                    'Bucket' => config('services.r2.bucket'),
+                    'Key'    => $heatmapPath,
+                ]);
+                $heatmapUrl = (string) $s3->createPresignedRequest($cmd, '+24 hours')->getUri();
+                $reportArr['heatmap_url'] = $heatmapUrl;
+            } catch (\Throwable $e) {
+                \Illuminate\Support\Facades\Log::warning("Failed to presign heatmap for report {$report->id}: {$e->getMessage()}");
+            }
+        }
+
+        return response()->json($reportArr);
     }
 
     // ============================================================
