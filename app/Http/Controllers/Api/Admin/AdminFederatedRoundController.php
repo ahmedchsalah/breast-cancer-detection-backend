@@ -84,24 +84,29 @@ class AdminFederatedRoundController extends Controller
     public function store(Request $request): JsonResponse
     {
         $validated = $request->validate([
-            'ai_model_id' => 'required|integer|exists:ai_models,id',
+            'ai_model_id' => 'nullable|integer|exists:ai_models,id',
+            'modality'    => 'nullable|in:open,image_only,clinical_only,multimodal',
+            'title'       => 'nullable|string|max:200',
+            'description' => 'nullable|string|max:2000',
+            'min_samples' => 'nullable|integer|min:1|max:10000',
         ]);
 
-        // Check no active round exists for this model
-        if (FlRound::where('ai_model_id', $validated['ai_model_id'])
-            ->whereIn('status', ['initiated', 'training', 'aggregating'])
-            ->exists()
-        ) {
-            return response()->json(['message' => 'There is already an active FL round for this model.'], 422);
+        // Check no active round exists globally (not per-model anymore)
+        if (FlRound::whereIn('status', ['initiated', 'training', 'aggregating'])->exists()) {
+            return response()->json(['message' => 'There is already an active FL round. Cancel or complete it before opening a new one.'], 422);
         }
 
-        // Auto-set round_number as max(round_number)+1 for this model
-        $lastRound   = FlRound::where('ai_model_id', $validated['ai_model_id'])->max('round_number');
+        // Auto-set round_number as global max+1
+        $lastRound   = FlRound::max('round_number');
         $roundNumber = ($lastRound ?? 0) + 1;
 
         $round = FlRound::create([
-            'ai_model_id'  => $validated['ai_model_id'],
+            'ai_model_id'  => $validated['ai_model_id'] ?? null,
             'round_number' => $roundNumber,
+            'modality'     => $validated['modality'] ?? 'open',
+            'title'        => $validated['title'] ?? "Round #{$roundNumber}",
+            'description'  => $validated['description'] ?? null,
+            'min_samples'  => $validated['min_samples'] ?? 20,
             'status'       => 'initiated',
             'started_at'   => now(),
         ]);
