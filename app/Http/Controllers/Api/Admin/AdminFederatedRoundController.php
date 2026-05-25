@@ -89,7 +89,7 @@ class AdminFederatedRoundController extends Controller
 
         // Check no active round exists for this model
         if (FlRound::where('ai_model_id', $validated['ai_model_id'])
-            ->whereIn('status', ['pending', 'in_progress'])
+            ->whereIn('status', ['initiated', 'training', 'aggregating'])
             ->exists()
         ) {
             return response()->json(['message' => 'There is already an active FL round for this model.'], 422);
@@ -102,7 +102,7 @@ class AdminFederatedRoundController extends Controller
         $round = FlRound::create([
             'ai_model_id'  => $validated['ai_model_id'],
             'round_number' => $roundNumber,
-            'status'       => 'pending',
+            'status'       => 'initiated',
             'started_at'   => now(),
         ]);
 

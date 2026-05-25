@@ -123,14 +123,14 @@ class FederatedRoundController extends Controller
         $roundNumber = ($lastRound ?? 0) + 1;
 
         // Block if there is already an open round for this model
-        if (FlRound::where('ai_model_id', $validated['ai_model_id'])->whereIn('status', ['pending', 'in_progress'])->exists()) {
+        if (FlRound::where('ai_model_id', $validated['ai_model_id'])->whereIn('status', ['initiated', 'training', 'aggregating'])->exists()) {
             return response()->json(['message' => 'There is already an active FL round for this model.'], 422);
         }
 
         $round = FlRound::create([
             'ai_model_id'  => $validated['ai_model_id'],
             'round_number' => $roundNumber,
-            'status'       => 'pending',
+            'status'       => 'initiated',
             'started_at'   => now(),
         ]);
 
