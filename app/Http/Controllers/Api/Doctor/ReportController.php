@@ -279,59 +279,266 @@ class ReportController extends Controller
     {
         $patient   = $report->patient;
         $pred      = $report->prediction;
+        $xai       = $pred?->xaiResult;
         $isLumA    = $pred?->is_lum_a;
         $conf      = $pred?->confidence_lum_a ?? 0;
-        $date      = now()->format('d F Y');
-        $color     = $isLumA ? '#0BB592' : '#F55486';
+        $confNon   = $pred?->confidence_non_lum_a ?? (1 - $conf);
+        $date      = now()->format('d F Y · H:i');
+        $reportNum = str_pad($report->id, 6, '0', STR_PAD_LEFT);
+        $primary   = $isLumA ? '#0BB592' : '#F55486';
         $label     = $isLumA ? 'Luminal A' : 'Non-Luminal A';
-        $therapy   = $isLumA
-            ? 'Luminal A subtype confirmed. Strong candidate for Endocrine (Hormonal) Therapy — Tamoxifen / Aromatase Inhibitors. Chemotherapy likely not indicated.'
-            : 'Non-Luminal A subtype detected. Higher risk profile — Chemotherapy or Targeted Therapy may be required. Consult MDT board.';
+        $stageRoman = ['I', 'II', 'III', 'IV'][($patient?->stage_num ?? 1) - 1] ?? '—';
+
+        // Therapy recommendations (proper medical detail)
+        if ($isLumA) {
+            $therapyPrimary  = 'Endocrine (Hormonal) Therapy';
+            $therapyAgents   = 'Tamoxifen 20mg/day (pre-menopausal) or Aromatase Inhibitors — Anastrozole/Letrozole (post-menopausal), 5-10 years duration';
+            $therapyRation   = 'Luminal A tumours are strongly hormone receptor-positive (ER/PR+) with low Ki-67 proliferation index. They respond favourably to hormonal blockade. Chemotherapy is generally not indicated unless adverse genomic features are present.';
+            $therapyPrognos  = 'Favourable prognosis. 5-year overall survival rate exceeds 90% with appropriate endocrine therapy and adjuvant care.';
+            $therapyAdditional = 'Consider Oncotype DX or MammaPrint genomic assay for borderline cases. Adjuvant radiation per staging guidelines. Annual follow-up imaging recommended.';
+        } else {
+            $therapyPrimary  = 'Chemotherapy ± Targeted Therapy';
+            $therapyAgents   = 'Anthracycline/Taxane-based regimen (AC-T or TC). Add Trastuzumab + Pertuzumab if HER2+. Consider CDK4/6 inhibitors (Palbociclib) if Luminal B. Immunotherapy (Pembrolizumab) if TNBC + PD-L1+.';
+            $therapyRation   = 'Non-Luminal A subtypes typically exhibit higher proliferation rates and may lack strong hormone receptor expression. Cytotoxic and targeted approaches are warranted given the more aggressive biological behaviour.';
+            $therapyPrognos  = 'Variable prognosis depending on exact molecular subtype (HER2-enriched, Basal-like, or Luminal B). Multi-disciplinary tumour board (MDT) consultation strongly recommended.';
+            $therapyAdditional = 'Evaluate PD-L1 expression for immunotherapy eligibility. Genetic counselling if BRCA1/2 mutation suspected. Sentinel lymph node biopsy for staging.';
+        }
+
+        // Receptor status
+        $erStr  = $patient?->er_status  ? 'Positive (+)' : 'Negative (−)';
+        $prStr  = $patient?->pr_status  ? 'Positive (+)' : 'Negative (−)';
+        $herStr = $patient?->her2_binary ? 'Positive (+)' : 'Negative (−)';
+
+        // XAI data
+        $topFeatures = $xai?->top_features ?? [];
+        $fusionGate  = $topFeatures['fusion_gate'] ?? null;
+        $topPatches  = $topFeatures['top_patches'] ?? [];
+        $imgPct      = $fusionGate ? round($fusionGate['image_weight'] * 100) : 50;
+        $clinPct     = $fusionGate ? round($fusionGate['clinical_weight'] * 100) : 50;
+
+        // Try to fetch heatmap image from R2 (if available) and embed as base64
+        $heatmapBase64 = '';
+        $xaiR2Key = $xai?->heatmap_path;
+        if ($xaiR2Key) {
+            try {
+                $heatmapBytes = \Illuminate\Support\Facades\Storage::disk('r2')->get($xaiR2Key);
+                if ($heatmapBytes) {
+                    $heatmapBase64 = 'data:image/png;base64,' . base64_encode($heatmapBytes);
+                }
+            } catch (\Throwable $e) {
+                \Illuminate\Support\Facades\Log::warning("[Report] Failed to fetch heatmap: {$e->getMessage()}");
+            }
+        }
+
+        // Build patches table HTML
+        $patchesRows = '';
+        if (!empty($topPatches)) {
+            $sorted = collect($topPatches)->sortByDesc('attention')->take(10)->values();
+            foreach ($sorted as $i => $p) {
+                $rank = $i + 1;
+                $idx = $p['patch_index'] ?? '—';
+                $att = number_format(($p['attention'] ?? 0) * 100, 2);
+                $patchesRows .= "<tr><td>#{$rank}</td><td>Patch {$idx}</td><td><strong>{$att}%</strong></td></tr>";
+            }
+        }
+
+        $heatmapSection = $heatmapBase64
+            ? "<div class='heatmap-section'><img src='{$heatmapBase64}' alt='XAI Heatmap' style='width:100%;max-width:520px;border-radius:8px;border:1px solid #e2e8f0;' /><p class='heatmap-caption'>Top-attention regions identified by the model on the histopathology slide. Brighter areas indicate higher diagnostic relevance.</p></div>"
+            : "<p style='font-size:12px;color:#94a3b8;font-style:italic;'>Heatmap visualization not available for this prediction.</p>";
+
+        $patchesTable = $patchesRows
+            ? "<table class='patches-table'><thead><tr><th>Rank</th><th>Patch ID</th><th>Attention Score</th></tr></thead><tbody>{$patchesRows}</tbody></table>"
+            : "<p style='font-size:12px;color:#94a3b8;font-style:italic;'>No patch attention data available (clinical-only prediction).</p>";
+
+        $clinicalNotes = $report->notes ? "<div class='section'><div class='section-title'>Physician Notes</div><div class='notes-box'>" . e($report->notes) . "</div></div>" : '';
+
+        $orgName = $doctor->organization?->name ?? 'BReCAI Platform';
 
         return <<<HTML
 <!DOCTYPE html><html><head><meta charset="UTF-8"/>
-<title>Clinical Report — {$patient?->patient_identifier}</title>
+<title>EMR · Clinical Report {$reportNum}</title>
 <style>
-body{font-family:'Segoe UI',Arial,sans-serif;margin:0;padding:40px;color:#1e293b;}
-.header{background:linear-gradient(135deg,#072a5e,#0572B2);color:#fff;padding:32px 40px;border-radius:12px;margin-bottom:32px;}
-.header h1{margin:0 0 4px;font-size:28px;font-weight:900;}
-.section{margin-bottom:24px;}
-.section-title{font-size:10px;font-weight:900;text-transform:uppercase;letter-spacing:2px;color:#94a3b8;margin-bottom:12px;}
-.grid{display:grid;grid-template-columns:1fr 1fr;gap:12px;}
-.card{background:#f8fafc;border:1px solid #e2e8f0;border-radius:10px;padding:14px 16px;}
-.card-label{font-size:10px;font-weight:800;text-transform:uppercase;letter-spacing:1px;color:#94a3b8;margin-bottom:4px;}
-.card-value{font-size:18px;font-weight:900;color:#1e293b;}
-.result-box{background:{$color}15;border:2px solid {$color}40;border-radius:12px;padding:20px 24px;margin-bottom:24px;}
-.result-label{font-size:32px;font-weight:900;color:{$color};}
-.therapy{background:#f8fafc;border-left:4px solid {$color};padding:14px 16px;border-radius:0 8px 8px 0;font-size:13px;line-height:1.6;}
-.footer{margin-top:40px;padding-top:20px;border-top:1px solid #e2e8f0;font-size:11px;color:#94a3b8;}
+@page { margin: 24px 28px; size: A4; }
+* { box-sizing: border-box; }
+body { font-family: 'DejaVu Sans', Arial, sans-serif; margin: 0; padding: 0; color: #1e293b; font-size: 11px; line-height: 1.5; }
+
+/* Header */
+.report-header { background: linear-gradient(135deg, #093A7A 0%, #0572B2 100%); color: white; padding: 22px 28px; border-radius: 14px; margin-bottom: 22px; }
+.report-header .eyebrow { font-size: 9px; font-weight: 800; text-transform: uppercase; letter-spacing: 2.5px; opacity: 0.7; margin-bottom: 6px; }
+.report-header h1 { margin: 0; font-size: 22px; font-weight: 900; letter-spacing: -0.3px; }
+.report-header .meta { display: flex; gap: 18px; margin-top: 12px; font-size: 10px; opacity: 0.85; flex-wrap: wrap; }
+.subtype-badge { display: inline-block; padding: 4px 14px; border-radius: 20px; font-size: 10px; font-weight: 900; text-transform: uppercase; letter-spacing: 1.2px; margin-top: 10px; background: rgba(255,255,255,0.15); border: 1.5px solid rgba(255,255,255,0.3); }
+
+/* Sections */
+.section { margin-bottom: 18px; page-break-inside: avoid; }
+.section-title { font-size: 9px; font-weight: 900; text-transform: uppercase; letter-spacing: 2.5px; color: #0572B2; margin-bottom: 8px; padding-bottom: 5px; border-bottom: 2px solid #e2e8f0; }
+
+/* Info grid */
+.info-grid { display: table; width: 100%; border-spacing: 8px 0; }
+.info-row { display: table-row; }
+.info-card { display: table-cell; background: #f8fafc; border: 1px solid #e2e8f0; border-radius: 8px; padding: 9px 11px; vertical-align: top; }
+.info-card .lbl { font-size: 8px; font-weight: 900; text-transform: uppercase; letter-spacing: 1.3px; color: #94a3b8; margin-bottom: 2px; }
+.info-card .val { font-size: 13px; font-weight: 900; color: #1e293b; }
+
+/* Result box */
+.result-box { background: {$primary}15; border: 2px solid {$primary}40; border-radius: 12px; padding: 16px 20px; margin-bottom: 18px; }
+.result-flex { display: table; width: 100%; }
+.result-main { display: table-cell; vertical-align: middle; }
+.result-conf { display: table-cell; vertical-align: middle; text-align: right; width: 100px; }
+.result-label-text { font-size: 9px; font-weight: 900; text-transform: uppercase; letter-spacing: 2px; color: #64748b; }
+.result-value { font-size: 24px; font-weight: 900; color: {$primary}; margin: 3px 0; }
+.result-sub { font-size: 11px; color: #475569; }
+.conf-circle { width: 70px; height: 70px; border-radius: 50%; border: 5px solid {$primary}; background: white; text-align: center; line-height: 60px; font-size: 14px; font-weight: 900; color: {$primary}; display: inline-block; }
+
+/* Therapy */
+.therapy-box { background: white; border: 1px solid #e2e8f0; border-radius: 10px; overflow: hidden; }
+.therapy-header { background: {$primary}; color: white; padding: 8px 14px; font-size: 10px; font-weight: 900; text-transform: uppercase; letter-spacing: 1.3px; }
+.therapy-body { padding: 12px 14px; }
+.therapy-row { margin-bottom: 8px; }
+.therapy-row .label { font-size: 9px; font-weight: 900; text-transform: uppercase; letter-spacing: 1px; color: #64748b; margin-bottom: 2px; }
+.therapy-row .content { font-size: 11px; color: #334155; line-height: 1.55; }
+
+/* XAI */
+.xai-section { background: #f8fafc; border: 1px solid #e2e8f0; border-radius: 10px; padding: 14px 16px; margin-bottom: 16px; }
+.gate-bar { display: table; width: 100%; height: 22px; border-radius: 6px; overflow: hidden; margin: 8px 0; border-spacing: 0; }
+.gate-img { display: table-cell; background: #0572B2; vertical-align: middle; text-align: center; color: white; font-size: 9px; font-weight: 800; }
+.gate-clin { display: table-cell; background: #0BB592; vertical-align: middle; text-align: center; color: white; font-size: 9px; font-weight: 800; }
+.gate-legend { font-size: 9px; color: #64748b; font-weight: 700; margin-top: 4px; }
+
+/* Heatmap */
+.heatmap-section { text-align: center; margin: 12px 0; }
+.heatmap-caption { font-size: 10px; color: #64748b; font-style: italic; margin-top: 6px; }
+
+/* Patches table */
+.patches-table { width: 100%; border-collapse: collapse; margin-top: 8px; }
+.patches-table th { background: #f1f5f9; padding: 6px 10px; text-align: left; font-size: 9px; font-weight: 900; text-transform: uppercase; letter-spacing: 1px; color: #64748b; border-bottom: 2px solid #e2e8f0; }
+.patches-table td { padding: 6px 10px; font-size: 11px; border-bottom: 1px solid #e2e8f0; }
+
+/* Notes */
+.notes-box { background: #fffbeb; border: 1px solid #fde68a; border-radius: 8px; padding: 10px 12px; font-size: 11px; color: #92400e; line-height: 1.6; }
+
+/* Disclaimer */
+.disclaimer { margin-top: 18px; background: #f1f5f9; border: 1px solid #e2e8f0; border-radius: 8px; padding: 10px 12px; font-size: 9px; color: #64748b; line-height: 1.55; }
+.disclaimer strong { color: #475569; }
+
+/* Footer */
+.report-footer { margin-top: 20px; padding-top: 14px; border-top: 2px solid #e2e8f0; font-size: 9px; color: #94a3b8; }
+.sig-line { border-top: 1.5px solid #1e293b; width: 200px; margin-top: 24px; padding-top: 5px; font-size: 11px; font-weight: 800; color: #1e293b; text-align: center; }
 </style></head><body>
-<div class="header">
-<p style="font-size:11px;font-weight:800;letter-spacing:3px;text-transform:uppercase;opacity:0.65;margin-bottom:8px;">BRECAI-FED · Clinical Diagnostic Report</p>
-<h1>{$patient?->patient_identifier}</h1>
-<p>Generated: {$date} · Dr. {$doctor->name}</p>
+
+<!-- Header -->
+<div class="report-header">
+  <div class="eyebrow">BReCAI-FED · Electronic Medical Record · Molecular Subtype Classification</div>
+  <h1>Patient {$patient?->patient_identifier}</h1>
+  <div class="meta">
+    <span><strong>EMR #</strong> {$reportNum}</span>
+    <span><strong>Issued</strong> {$date}</span>
+    <span><strong>Physician</strong> Dr. {$doctor->name}</span>
+    <span><strong>Institution</strong> {$orgName}</span>
+  </div>
+  <span class="subtype-badge">{$label} · Confidence {$this->pct($conf)}%</span>
 </div>
+
+<!-- Patient & Clinical Profile -->
 <div class="section">
-<div class="section-title">Patient Information</div>
-<div class="grid">
-<div class="card"><div class="card-label">Patient ID</div><div class="card-value">{$patient?->patient_identifier}</div></div>
-<div class="card"><div class="card-label">Age</div><div class="card-value">{$patient?->age} years</div></div>
-<div class="card"><div class="card-label">Stage</div><div class="card-value">Stage {$patient?->stage_num}</div></div>
-<div class="card"><div class="card-label">Biomarkers</div><div class="card-value">
-{$this->bioStr($patient)}
-</div></div>
-</div></div>
+  <div class="section-title">Patient & Clinical Profile</div>
+  <div class="info-grid">
+    <div class="info-row">
+      <div class="info-card"><div class="lbl">Patient ID</div><div class="val">{$patient?->patient_identifier}</div></div>
+      <div class="info-card"><div class="lbl">Age</div><div class="val">{$patient?->age} years</div></div>
+      <div class="info-card"><div class="lbl">Tumour Stage</div><div class="val">Stage {$stageRoman}</div></div>
+    </div>
+  </div>
+  <div class="info-grid" style="margin-top:8px;">
+    <div class="info-row">
+      <div class="info-card"><div class="lbl">Estrogen Receptor (ER)</div><div class="val">{$erStr}</div></div>
+      <div class="info-card"><div class="lbl">Progesterone Receptor (PR)</div><div class="val">{$prStr}</div></div>
+      <div class="info-card"><div class="lbl">HER2/neu</div><div class="val">{$herStr}</div></div>
+    </div>
+  </div>
+</div>
+
+<!-- AI Result -->
 <div class="result-box">
-<div style="font-size:11px;font-weight:800;text-transform:uppercase;letter-spacing:1.5px;color:#94a3b8;margin-bottom:8px;">AI Prediction Result</div>
-<div class="result-label">{$label}</div>
-<p style="margin:8px 0 0;font-size:13px;color:#475569;">Luminal A probability: <strong>{$this->pct($conf)}%</strong></p>
+  <div class="result-flex">
+    <div class="result-main">
+      <div class="result-label-text">AI Classification Result</div>
+      <div class="result-value">{$label}</div>
+      <div class="result-sub">Probability LumA: <strong>{$this->pct($conf)}%</strong> · Probability Non-LumA: <strong>{$this->pct($confNon)}%</strong> · Threshold: 51%</div>
+      <div class="result-sub" style="margin-top:4px;">Model: <strong>A6 Cross-Attention Fusion (CONCH ViT-B/16 + Clinical Encoder)</strong></div>
+    </div>
+    <div class="result-conf">
+      <div class="conf-circle">{$this->pct($conf)}%</div>
+    </div>
+  </div>
 </div>
+
+<!-- Therapy Recommendation -->
 <div class="section">
-<div class="section-title">Therapy Recommendation</div>
-<div class="therapy">{$therapy}</div>
+  <div class="section-title">Recommended Therapeutic Strategy</div>
+  <div class="therapy-box">
+    <div class="therapy-header">Treatment Plan</div>
+    <div class="therapy-body">
+      <div class="therapy-row"><div class="label">Primary Modality</div><div class="content"><strong>{$therapyPrimary}</strong></div></div>
+      <div class="therapy-row"><div class="label">Pharmacological Agents</div><div class="content">{$therapyAgents}</div></div>
+      <div class="therapy-row"><div class="label">Clinical Rationale</div><div class="content">{$therapyRation}</div></div>
+      <div class="therapy-row"><div class="label">Prognosis</div><div class="content">{$therapyPrognos}</div></div>
+      <div class="therapy-row"><div class="label">Additional Considerations</div><div class="content">{$therapyAdditional}</div></div>
+    </div>
+  </div>
 </div>
-HTML . ($report->notes ? "<div class='section'><div class='section-title'>Clinical Notes</div><div class='therapy'>{$report->notes}</div></div>" : '')
-. "<div class='footer'>BRECAI-FED · Federated Medical AI Platform · Report #{$report->id} · Status: " . strtoupper($report->status) . "</div></body></html>";
+
+<!-- XAI Explainability -->
+<div class="section">
+  <div class="section-title">Explainability & Model Interpretation (XAI)</div>
+  <div class="xai-section">
+    <div style="font-size:10px;font-weight:900;text-transform:uppercase;letter-spacing:1.5px;color:#64748b;margin-bottom:6px;">Modality Contribution Gate</div>
+    <div class="gate-bar">
+      <div class="gate-img" style="width:{$imgPct}%">Histopathology {$imgPct}%</div>
+      <div class="gate-clin" style="width:{$clinPct}%">Clinical {$clinPct}%</div>
+    </div>
+    <div class="gate-legend">Gate weights show how the model balanced histopathology image features (CONCH) vs clinical biomarkers (ER/PR/HER2/Stage/Age) to reach this classification.</div>
+  </div>
+</div>
+
+<!-- Segmentation Heatmap -->
+<div class="section">
+  <div class="section-title">Histopathology Segmentation & Attention Heatmap</div>
+  {$heatmapSection}
+</div>
+
+<!-- Top Patches Table -->
+<div class="section">
+  <div class="section-title">Top Diagnostic Regions (Patch Attention Ranking)</div>
+  {$patchesTable}
+</div>
+
+{$clinicalNotes}
+
+<!-- Disclaimer -->
+<div class="disclaimer">
+  <strong>Legal Disclaimer:</strong> This AI-generated report is intended as a <strong>diagnostic aid</strong> and must be reviewed by a licensed medical professional before clinical action. The BReCAI system provides molecular subtype classification to assist in treatment planning — it does not replace professional medical judgement. All therapeutic recommendations require validation by a multi-disciplinary oncology team.
+</div>
+
+<!-- Signature -->
+<div class="sig-line">Dr. {$doctor->name}</div>
+
+<!-- Footer -->
+<div class="report-footer">
+  <strong>BReCAI-FED</strong> · Federated Medical AI Platform · EMR #{$reportNum} · Status: <strong>{$this->statusLabel($report->status)}</strong> · Generated on {$date}
+</div>
+
+</body></html>
+HTML;
+    }
+
+    private function statusLabel(string $status): string
+    {
+        return match ($status) {
+            'final', 'finalized' => 'FINALIZED',
+            'draft' => 'DRAFT',
+            default => strtoupper($status),
+        };
     }
 
     private function bioStr($patient): string
