@@ -6,6 +6,7 @@ use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
 use Illuminate\Database\Eloquent\Relations\HasMany;
+use Illuminate\Database\Eloquent\Relations\HasManyThrough;
 class Organization extends Model
 {
     use HasFactory;
@@ -82,6 +83,11 @@ class Organization extends Model
     public function flContributions(): HasMany
     {
         return $this->hasMany(FlContribution::class);
+    }
+
+    public function flRoundInvitations(): HasMany
+    {
+        return $this->hasManyThrough(FlRoundInvitation::class, User::class, 'organization_id', 'instructor_id');
     }
 
     public function wsiUploads(): HasMany

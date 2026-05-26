@@ -116,7 +116,7 @@ class AdminFederatedRoundController extends Controller
             $instructors = \App\Models\User::role('instructor')
                 ->whereNotNull('organization_id')
                 ->whereHas('organization', fn ($q) => $q->where('status', 'active'))
-                ->where('email_verified_at', '!=', null)
+                ->where('is_active', true)
                 ->get();
 
             $frontendUrl = rtrim(config('app.frontend_url') ?? env('FRONTEND_URL', 'https://brecai-fed-react.vercel.app'), '/');

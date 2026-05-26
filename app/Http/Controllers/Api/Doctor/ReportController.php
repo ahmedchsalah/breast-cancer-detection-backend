@@ -284,7 +284,7 @@ class ReportController extends Controller
         // Send report to doctor via email with PDF attached
         $doctor = auth()->user();
         try {
-            $report->load(['patient', 'prediction', 'examination', 'prediction.xaiResult']);
+            $report->load(['patient', 'prediction.aiModel', 'examination', 'prediction.xaiResult']);
 
             // Generate HTML report content
             $htmlContent = $this->generateReportHtml($report, $doctor);
@@ -320,19 +320,40 @@ class ReportController extends Controller
         $label     = $isLumA ? 'Luminal A' : 'Non-Luminal A';
         $stageRoman = ['I', 'II', 'III', 'IV'][($patient?->stage_num ?? 1) - 1] ?? '—';
 
+        $model         = $pred?->aiModel;
+        $thresholdVal  = $model?->threshold ?? 0.43;
+
         // Therapy recommendations (proper medical detail)
         if ($isLumA) {
-            $therapyPrimary  = 'Endocrine (Hormonal) Therapy';
-            $therapyAgents   = 'Tamoxifen 20mg/day (pre-menopausal) or Aromatase Inhibitors — Anastrozole/Letrozole (post-menopausal), 5-10 years duration';
-            $therapyRation   = 'Luminal A tumours are strongly hormone receptor-positive (ER/PR+) with low Ki-67 proliferation index. They respond favourably to hormonal blockade. Chemotherapy is generally not indicated unless adverse genomic features are present.';
-            $therapyPrognos  = 'Favourable prognosis. 5-year overall survival rate exceeds 90% with appropriate endocrine therapy and adjuvant care.';
-            $therapyAdditional = 'Consider Oncotype DX or MammaPrint genomic assay for borderline cases. Adjuvant radiation per staging guidelines. Annual follow-up imaging recommended.';
+            $therapyPrimary    = 'Endocrine (Hormonal) Therapy';
+            $therapyPrimaryAr  = 'العلاج الهرموني (الغدد الصماء)';
+            
+            $therapyAgents     = 'Tamoxifen 20mg/day (pre-menopausal) or Aromatase Inhibitors — Anastrozole/Letrozole (post-menopausal), 5-10 years duration';
+            $therapyAgentsAr   = 'تاموكسيفين 20 ملغ/اليوم (قبل انقطاع الطمث) أو مثبطات الأروماتاز — أناستروزول/ليتروزول (بعد انقطاع الطمث)، لمدة 5-10 سنوات';
+            
+            $therapyRation     = 'Luminal A tumours are strongly hormone receptor-positive (ER/PR+) with low Ki-67 proliferation index. They respond favourably to hormonal blockade. Chemotherapy is generally not indicated unless adverse genomic features are present.';
+            $therapyRationAr   = 'أورام لومينال A (Luminal A) تكون إيجابية لمستقبلات الهرمونات بشكل قوي (ER/PR+) مع مؤشر تكاثر منخفض (Ki-67). وهي تستجيب بشكل إيجابي للحصار الهرموني. لا يوصى عادة بالعلاج الكيميائي إلا في حالة وجود خصائص جينومية غير مواتية.';
+            
+            $therapyPrognos    = 'Favourable prognosis. 5-year overall survival rate exceeds 90% with appropriate endocrine therapy and adjuvant care.';
+            $therapyPrognosAr  = 'إنذار إيجابي ومبشر. يتجاوز معدل البقاء على قيد الحياة لمدة 5 سنوات 90% مع العلاج الهرموني المناسب والرعاية الداعمة المرافقة.';
+            
+            $therapyAdditional   = 'Consider Oncotype DX or MammaPrint genomic assay for borderline cases. Adjuvant radiation per staging guidelines. Annual follow-up imaging recommended.';
+            $therapyAdditionalAr = 'النظر في إجراء اختبار جينومي مثل Oncotype DX أو MammaPrint للحالات الحدية. العلاج الإشعاعي المساعد وفقاً لتوجيهات تحديد المرحلة. يُوصى بالتصوير السنوي للمتابعة.';
         } else {
-            $therapyPrimary  = 'Chemotherapy ± Targeted Therapy';
-            $therapyAgents   = 'Anthracycline/Taxane-based regimen (AC-T or TC). Add Trastuzumab + Pertuzumab if HER2+. Consider CDK4/6 inhibitors (Palbociclib) if Luminal B. Immunotherapy (Pembrolizumab) if TNBC + PD-L1+.';
-            $therapyRation   = 'Non-Luminal A subtypes typically exhibit higher proliferation rates and may lack strong hormone receptor expression. Cytotoxic and targeted approaches are warranted given the more aggressive biological behaviour.';
-            $therapyPrognos  = 'Variable prognosis depending on exact molecular subtype (HER2-enriched, Basal-like, or Luminal B). Multi-disciplinary tumour board (MDT) consultation strongly recommended.';
-            $therapyAdditional = 'Evaluate PD-L1 expression for immunotherapy eligibility. Genetic counselling if BRCA1/2 mutation suspected. Sentinel lymph node biopsy for staging.';
+            $therapyPrimary    = 'Chemotherapy ± Targeted Therapy';
+            $therapyPrimaryAr  = 'العلاج الكيميائي ± العلاج الموجه';
+            
+            $therapyAgents     = 'Anthracycline/Taxane-based regimen (AC-T or TC). Add Trastuzumab + Pertuzumab if HER2+. Consider CDK4/6 inhibitors (Palbociclib) if Luminal B. Immunotherapy (Pembrolizumab) if TNBC + PD-L1+.';
+            $therapyAgentsAr   = 'نظام يعتمد على الأنثراسيكلين/التاكسان (AC-T أو TC). إضافة تراستوزوماب + بيرتوزوماب إذا كان HER2 إيجابياً. النظر في مثبطات CDK4/6 (بالبوسيكليب) إذا كان لومينال B. العلاج المناعي (بيمبروليزوماب) إذا كان سرطان الثدي ثلاثي السلبية مع إيجابية PD-L1.';
+            
+            $therapyRation     = 'Non-Luminal A subtypes typically exhibit higher proliferation rates and may lack strong hormone receptor expression. Cytotoxic and targeted approaches are warranted given the more aggressive biological behaviour.';
+            $therapyRationAr   = 'تُظهر الأنواع الفرعية غير لومينال A (Non-Luminal A) عادةً معدلات تكاثر أعلى وقد تفتقر إلى التعبير القوي عن مستقبلات الهرمونات. يوصى بالنهج السام للخلايا والموجه نظراً للسلوك البيولوجي الأكثر عدوانية للورم.';
+            
+            $therapyPrognos    = 'Variable prognosis depending on exact molecular subtype (HER2-enriched, Basal-like, or Luminal B). Multi-disciplinary tumour board (MDT) consultation strongly recommended.';
+            $therapyPrognosAr  = 'إنذار متغير يعتمد على النوع الفرعي الجزيئي الدقيق (المخصب بـ HER2، أو الشبيه بالخلايا القاعدية، أو لومينال B). يوصى بشدة باستشارة لجنة الأورام متعددة التخصصات (MDT).';
+            
+            $therapyAdditional   = 'Evaluate PD-L1 expression for immunotherapy eligibility. Genetic counselling if BRCA1/2 mutation suspected. Sentinel lymph node biopsy for staging.';
+            $therapyAdditionalAr = 'تقييم تعبير PD-L1 لأهلية العلاج المناعي. الاستشارة الوراثية في حال الشك في وجود طفرة BRCA1/2. خزعة العقدة الليمفاوية الخافرة لتحديد المرحلة.';
         }
 
         // Receptor status
@@ -446,9 +467,15 @@ body { font-family: 'DejaVu Sans', Arial, sans-serif; margin: 0; padding: 0; col
 .therapy-box { background: white; border: 1px solid #e2e8f0; border-radius: 10px; overflow: hidden; }
 .therapy-header { background: {$primary}; color: white; padding: 8px 14px; font-size: 10px; font-weight: 900; text-transform: uppercase; letter-spacing: 1.3px; }
 .therapy-body { padding: 12px 14px; }
-.therapy-row { margin-bottom: 8px; }
-.therapy-row .label { font-size: 9px; font-weight: 900; text-transform: uppercase; letter-spacing: 1px; color: #64748b; margin-bottom: 2px; }
-.therapy-row .content { font-size: 11px; color: #334155; line-height: 1.55; }
+.therapy-row { margin-bottom: 12px; }
+.therapy-table-row { width: 100%; border-collapse: collapse; border: none; margin: 0; }
+.therapy-table-row td { border: none; padding: 0; vertical-align: top; }
+.therapy-col-en { width: 50%; padding-right: 12px; text-align: left; }
+.therapy-col-ar { width: 50%; padding-left: 12px; text-align: right; direction: rtl; }
+.therapy-row .label { font-size: 8px; font-weight: 900; text-transform: uppercase; letter-spacing: 1px; color: #64748b; margin-bottom: 2px; text-align: left; }
+.therapy-row .label-ar { font-size: 10px; font-weight: bold; color: #64748b; margin-bottom: 2px; text-align: right; }
+.therapy-row .content { font-size: 10.5px; color: #334155; line-height: 1.5; text-align: left; }
+.therapy-row .content-ar { font-size: 10.5px; color: #334155; line-height: 1.5; text-align: right; direction: rtl; }
 
 /* XAI */
 .xai-section { background: #f8fafc; border: 1px solid #e2e8f0; border-radius: 10px; padding: 14px 16px; margin-bottom: 16px; }
@@ -516,7 +543,7 @@ body { font-family: 'DejaVu Sans', Arial, sans-serif; margin: 0; padding: 0; col
     <div class="result-main">
       <div class="result-label-text">AI Classification Result</div>
       <div class="result-value">{$label}</div>
-      <div class="result-sub">Probability LumA: <strong>{$this->pct($conf)}%</strong> · Probability Non-LumA: <strong>{$this->pct($confNon)}%</strong> · Threshold: 51%</div>
+      <div class="result-sub">Probability LumA: <strong>{$this->pct($conf)}%</strong> · Probability Non-LumA: <strong>{$this->pct($confNon)}%</strong> · Threshold: {$this->pct($thresholdVal)}%</div>
       <div class="result-sub" style="margin-top:4px;">Model: <strong>A6 Cross-Attention Fusion (CONCH ViT-B/16 + Clinical Encoder)</strong></div>
     </div>
     <div class="result-conf">
@@ -527,15 +554,96 @@ body { font-family: 'DejaVu Sans', Arial, sans-serif; margin: 0; padding: 0; col
 
 <!-- Therapy Recommendation -->
 <div class="section">
-  <div class="section-title">Recommended Therapeutic Strategy</div>
+  <div class="section-title">Recommended Therapeutic Strategy / الخطة العلاجية الموصى بها</div>
   <div class="therapy-box">
-    <div class="therapy-header">Treatment Plan</div>
+    <div class="therapy-header">
+      <table style="width:100%; border-collapse:collapse; border:none; margin:0; padding:0;">
+        <tr>
+          <td style="width:50%; text-align:left; color:white; font-size:10px; font-weight:900; border:none;">Treatment Plan</td>
+          <td style="width:50%; text-align:right; color:white; font-size:10px; font-weight:900; border:none; direction:rtl;">خطة العلاج</td>
+        </tr>
+      </table>
+    </div>
     <div class="therapy-body">
-      <div class="therapy-row"><div class="label">Primary Modality</div><div class="content"><strong>{$therapyPrimary}</strong></div></div>
-      <div class="therapy-row"><div class="label">Pharmacological Agents</div><div class="content">{$therapyAgents}</div></div>
-      <div class="therapy-row"><div class="label">Clinical Rationale</div><div class="content">{$therapyRation}</div></div>
-      <div class="therapy-row"><div class="label">Prognosis</div><div class="content">{$therapyPrognos}</div></div>
-      <div class="therapy-row"><div class="label">Additional Considerations</div><div class="content">{$therapyAdditional}</div></div>
+      <!-- Primary Modality -->
+      <div class="therapy-row">
+        <table class="therapy-table-row">
+          <tr>
+            <td class="therapy-col-en">
+              <div class="label">Primary Modality</div>
+              <div class="content"><strong>{$therapyPrimary}</strong></div>
+            </td>
+            <td class="therapy-col-ar">
+              <div class="label-ar">طريقة العلاج الأساسية</div>
+              <div class="content-ar"><strong>{$therapyPrimaryAr}</strong></div>
+            </td>
+          </tr>
+        </table>
+      </div>
+
+      <!-- Pharmacological Agents -->
+      <div class="therapy-row">
+        <table class="therapy-table-row">
+          <tr>
+            <td class="therapy-col-en">
+              <div class="label">Pharmacological Agents</div>
+              <div class="content">{$therapyAgents}</div>
+            </td>
+            <td class="therapy-col-ar">
+              <div class="label-ar">الأدوية والعوامل العلاجية</div>
+              <div class="content-ar">{$therapyAgentsAr}</div>
+            </td>
+          </tr>
+        </table>
+      </div>
+
+      <!-- Clinical Rationale -->
+      <div class="therapy-row">
+        <table class="therapy-table-row">
+          <tr>
+            <td class="therapy-col-en">
+              <div class="label">Clinical Rationale</div>
+              <div class="content">{$therapyRation}</div>
+            </td>
+            <td class="therapy-col-ar">
+              <div class="label-ar">المبرر السريري</div>
+              <div class="content-ar">{$therapyRationAr}</div>
+            </td>
+          </tr>
+        </table>
+      </div>
+
+      <!-- Prognosis -->
+      <div class="therapy-row">
+        <table class="therapy-table-row">
+          <tr>
+            <td class="therapy-col-en">
+              <div class="label">Prognosis</div>
+              <div class="content">{$therapyPrognos}</div>
+            </td>
+            <td class="therapy-col-ar">
+              <div class="label-ar">التنبؤ بسير المرض / الإنذار</div>
+              <div class="content-ar">{$therapyPrognosAr}</div>
+            </td>
+          </tr>
+        </table>
+      </div>
+
+      <!-- Additional Considerations -->
+      <div class="therapy-row">
+        <table class="therapy-table-row">
+          <tr>
+            <td class="therapy-col-en">
+              <div class="label">Additional Considerations</div>
+              <div class="content">{$therapyAdditional}</div>
+            </td>
+            <td class="therapy-col-ar">
+              <div class="label-ar">اعتبارات إضافية</div>
+              <div class="content-ar">{$therapyAdditionalAr}</div>
+            </td>
+          </tr>
+        </table>
+      </div>
     </div>
   </div>
 </div>

@@ -14,6 +14,10 @@ class FlRound extends Model
     protected $fillable = [
         'ai_model_id',
         'round_number',
+        'modality',
+        'title',
+        'description',
+        'min_samples',
         'status',
         'global_accuracy',
         'started_at',
@@ -34,5 +38,10 @@ class FlRound extends Model
     public function contributions(): HasMany
     {
         return $this->hasMany(FlContribution::class);
+    }
+
+    public function invitations(): HasMany
+    {
+        return $this->hasMany(FlRoundInvitation::class);
     }
 }

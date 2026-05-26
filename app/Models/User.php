@@ -68,4 +68,9 @@ class User extends Authenticatable
     {
         return $this->hasMany(Notification::class);
     }
+
+    public function flRoundInvitations(): HasMany
+    {
+        return $this->hasMany(FlRoundInvitation::class, 'instructor_id');
+    }
 }
