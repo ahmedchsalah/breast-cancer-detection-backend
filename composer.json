@@ -8,7 +8,6 @@
     "require": {
         "php": "^8.2",
         "ext-mbstring": "*",
-        "ext-sodium": "*",
         "barryvdh/laravel-dompdf": "^3.1",
         "darkaonline/l5-swagger": "^11.0",
         "kreait/laravel-firebase": "^7.1",
@@ -91,6 +90,7 @@
             "php-http/discovery": true
         },
         "platform": {
+            "ext-sodium": "7.4"
         }
     },
     "minimum-stability": "stable",
