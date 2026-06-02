@@ -20,14 +20,25 @@ class FlRound extends Model
         'min_samples',
         'status',
         'global_accuracy',
+        'global_loss',
         'started_at',
         'ended_at',
+        'deadline',
+        'aggregation_method',
+        'recommended_hyperparams',
+        'blockchain_receipt',
+        'aggregated_weights_r2_key',
+        'aggregated_weights_hash',
     ];
 
     protected $casts = [
-        'global_accuracy' => 'float',
-        'started_at'      => 'datetime',
-        'ended_at'        => 'datetime',
+        'global_accuracy'         => 'float',
+        'global_loss'             => 'float',
+        'started_at'              => 'datetime',
+        'ended_at'                => 'datetime',
+        'deadline'                => 'datetime',
+        'recommended_hyperparams' => 'array',
+        'blockchain_receipt'      => 'array',
     ];
 
     public function aiModel(): BelongsTo

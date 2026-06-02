@@ -166,7 +166,7 @@ class PatientController extends Controller
     public function store(Request $request): JsonResponse
     {
         $validated = $request->validate([
-            'patient_identifier'      => 'required|string|max:50|unique:patients,patient_identifier',
+            'patient_identifier'      => 'nullable|string|max:50|unique:patients,patient_identifier',
             'er_status'               => 'required|boolean',
             'pr_status'               => 'required|boolean',
             'her2_binary'             => 'required|boolean',
@@ -181,6 +181,11 @@ class PatientController extends Controller
         ]);
 
         $validated['organization_id'] = $this->doctor()->organization_id;
+
+        // Auto-generate BRECAI-FED identifier if not provided
+        if (empty($validated['patient_identifier'])) {
+            $validated['patient_identifier'] = Patient::generateIdentifier($validated['organization_id']);
+        }
 
         $patient = Patient::create($validated);
 

@@ -70,5 +70,17 @@ return [
         'public_url' => env('R2_PUBLIC_URL'), // optional CDN URL
     ],
 
+    // ── Google Gemini API for smart FL hyperparameter selection ───────────────
+    'gemini' => [
+        'api_key' => env('GEMINI_API_KEY'),
+        'model'   => env('GEMINI_MODEL', 'gemini-2.0-flash'),
+    ],
+
+    // ── FL Aggregation Space (HuggingFace) ───────────────────────────────────
+    'fl_aggregation' => [
+        'url'    => env('FL_AGGREGATION_URL', 'https://ahmedchikhsalah-brecai-fl-aggregation.hf.space'),
+        'secret' => env('BRECAI_INTERNAL_SECRET', 'change-me-in-production'),
+    ],
+
 ];
 

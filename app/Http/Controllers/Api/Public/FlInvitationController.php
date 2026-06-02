@@ -53,6 +53,9 @@ class FlInvitationController extends Controller
     /**
      * POST /api/public/fl-invite/{token}/respond
      * Body: { decision: "accept" | "decline" }
+     *
+     * When an instructor accepts, they can immediately start training
+     * (async flow — no need to wait for admin).
      */
     public function respond(Request $request, string $token): JsonResponse
     {
@@ -69,6 +72,11 @@ class FlInvitationController extends Controller
             return response()->json(['message' => 'This round is no longer accepting responses.'], 422);
         }
 
+        // Check deadline
+        if ($invitation->flRound->deadline && now()->isAfter($invitation->flRound->deadline)) {
+            return response()->json(['message' => 'The deadline for this round has passed.'], 422);
+        }
+
         $invitation->update([
             'status' => $validated['decision'] === 'accept'
                 ? FlRoundInvitation::STATUS_ACCEPTED
@@ -76,9 +84,24 @@ class FlInvitationController extends Controller
             'responded_at' => now(),
         ]);
 
-        return response()->json([
+        // If accepted, return the round info with recommended hyperparams so
+        // the instructor can immediately inspect data and start training
+        $round = $invitation->flRound;
+        $responseData = [
             'message' => 'Response recorded. Thank you.',
             'status' => $invitation->status,
-        ]);
+        ];
+
+        if ($validated['decision'] === 'accept') {
+            $responseData['next_steps'] = [
+                'inspect_data_url' => "/api/fl/rounds/inspect-data",
+                'start_training_url' => "/api/fl/rounds/start-training",
+                'recommended_hyperparams' => $round->recommended_hyperparams,
+                'deadline' => $round->deadline?->toIso8601String(),
+                'invitation_id' => $invitation->id,
+            ];
+        }
+
+        return response()->json($responseData);
     }
 }

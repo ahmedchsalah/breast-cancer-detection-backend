@@ -17,6 +17,8 @@ class FlContribution extends Model
         'local_accuracy_before',
         'local_accuracy_after',
         'weights_update_path',
+        'weights_hash',
+        'aggregation_method',
     ];
 
     protected $casts = [

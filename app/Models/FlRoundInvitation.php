@@ -10,6 +10,7 @@ class FlRoundInvitation extends Model
 {
     public const STATUS_PENDING   = 'pending';
     public const STATUS_ACCEPTED  = 'accepted';
+    public const STATUS_TRAINING  = 'training';
     public const STATUS_DECLINED  = 'declined';
     public const STATUS_SUBMITTED = 'submitted';
 
@@ -23,13 +24,23 @@ class FlRoundInvitation extends Model
         'local_accuracy',
         'local_loss',
         'weights_hash',
+        'weights_r2_key',
+        'hyperparams_used',
+        'local_sample_size',
+        'data_inspected_at',
+        'training_started_at',
+        'training_completed_at',
     ];
 
     protected $casts = [
-        'responded_at' => 'datetime',
-        'submitted_at' => 'datetime',
-        'local_accuracy' => 'float',
-        'local_loss' => 'float',
+        'responded_at'         => 'datetime',
+        'submitted_at'         => 'datetime',
+        'local_accuracy'       => 'float',
+        'local_loss'           => 'float',
+        'hyperparams_used'     => 'array',
+        'data_inspected_at'    => 'datetime',
+        'training_started_at'  => 'datetime',
+        'training_completed_at'=> 'datetime',
     ];
 
     protected static function booted(): void

@@ -21,3 +21,17 @@ Schedule::command('brecai:wake')
     ->onFailure(function () {
         \Illuminate\Support\Facades\Log::warning('[Scheduler] brecai:wake failed — space may be sleeping.');
     });
+
+// ── FL Deadline-based Aggregation ────────────────────────────────────────────
+// Checks every hour for FL rounds whose deadline has passed and triggers
+// automatic aggregation of all submitted contributions.
+Schedule::command('fl:aggregate-expired')
+    ->hourly()
+    ->withoutOverlapping()
+    ->runInBackground()
+    ->onSuccess(function () {
+        \Illuminate\Support\Facades\Log::info('[Scheduler] fl:aggregate-expired completed.');
+    })
+    ->onFailure(function () {
+        \Illuminate\Support\Facades\Log::warning('[Scheduler] fl:aggregate-expired failed.');
+    });

@@ -63,6 +63,59 @@ Route::prefix('internal')->name('internal.')->group(function () {
     Route::post('/predictions/{jobId}/result', [PredictionWebhookController::class, 'handle'])
          ->name('predictions.result');
 
+    // FL aggregation result webhook (called by FL aggregation space after aggregation)
+    Route::post('/fl/aggregation-result', function (\Illuminate\Http\Request $request) {
+        $secret = $request->header('X-Internal-Secret');
+        if ($secret !== config('services.fl_aggregation.secret')) {
+            return response()->json(['message' => 'Unauthorized.'], 401);
+        }
+
+        $data = $request->json()->all();
+        $roundId = $data['round_id'] ?? null;
+
+        if (!$roundId) {
+            return response()->json(['message' => 'Missing round_id.'], 422);
+        }
+
+        $round = \App\Models\FlRound::find($roundId);
+        if (!$round) {
+            return response()->json(['message' => 'Round not found.'], 404);
+        }
+
+        // Record blockchain aggregation block
+        if (!empty($data['aggregated_weights_hash'])) {
+            $contributionHashes = \App\Models\FlRoundInvitation::where('fl_round_id', $roundId)
+                ->where('status', 'submitted')
+                ->pluck('weights_hash')
+                ->filter()
+                ->toArray();
+
+            \App\Services\BlockchainHashingService::createAggregationBlock(
+                $roundId,
+                $data['aggregated_weights_hash'],
+                $contributionHashes,
+                $round->aggregation_method,
+                [
+                    'n_contributions' => $data['n_contributions'] ?? 0,
+                    'avg_accuracy'    => $data['global_accuracy'] ?? null,
+                ]
+            );
+        }
+
+        $round->update([
+            'status'                    => 'completed',
+            'global_accuracy'           => $data['global_accuracy'] ?? null,
+            'global_loss'               => $data['global_loss'] ?? null,
+            'aggregated_weights_r2_key' => $data['aggregated_weights_r2_key'] ?? null,
+            'aggregated_weights_hash'   => $data['aggregated_weights_hash'] ?? null,
+            'ended_at'                  => now(),
+        ]);
+
+        \Illuminate\Support\Facades\Log::info("[FL Webhook] Round #{$round->round_number} aggregation result received. Accuracy: " . ($data['global_accuracy'] ?? 'N/A'));
+
+        return response()->json(['message' => 'Aggregation result recorded.']);
+    })->name('fl.aggregation-result');
+
     // Manual wake trigger — admin only, protected by internal secret header
     Route::post('/brecai/wake', function (\Illuminate\Http\Request $request) {
         $secret = $request->header('X-Internal-Secret');
@@ -166,6 +219,7 @@ Route::middleware('auth:sanctum')->group(function () {
         Route::get('federated-rounds',                          [AdminFederatedRoundController::class, 'index']);
         Route::post('federated-rounds',                         [AdminFederatedRoundController::class, 'store']);
         Route::get('federated-rounds/{flRound}',                [AdminFederatedRoundController::class, 'show']);
+        Route::post('federated-rounds/{flRound}/aggregate',     [AdminFederatedRoundController::class, 'triggerAggregation']);
         Route::post('federated-rounds/{flRound}/complete',      [AdminFederatedRoundController::class, 'complete']);
         Route::post('federated-rounds/{flRound}/cancel',        [AdminFederatedRoundController::class, 'cancel']);
         Route::delete('federated-rounds/{flRound}',             [AdminFederatedRoundController::class, 'destroy']);
@@ -301,7 +355,10 @@ Route::middleware('auth:sanctum')->group(function () {
         // FL rounds
         Route::get('rounds',                            [FederatedRoundController::class, 'index']);
         Route::get('rounds/current',                    [FederatedRoundController::class, 'current']);
+        Route::post('rounds/inspect-data',              [FederatedRoundController::class, 'inspectData']);
+        Route::post('rounds/start-training',            [FederatedRoundController::class, 'startTraining']);
         Route::post('rounds/submit-contribution',       [FederatedRoundController::class, 'submitContribution']);
+        Route::post('rounds/suggest-hyperparams',       [FederatedRoundController::class, 'suggestHyperparams']);
         Route::get('rounds/{flRound}',                  [FederatedRoundController::class, 'show']);
         Route::post('rounds',                           [FederatedRoundController::class, 'store']);
         Route::post('rounds/{flRound}/complete',        [FederatedRoundController::class, 'complete']);
