@@ -240,11 +240,11 @@ class PredictionController extends Controller
         }
 
         if ($hasR2Key) {
-            // R2 slide (SVS) — fire-and-forget to HF, webhook delivers result
-            // Run the job inline but it will just send the request and return immediately
-            dispatch_sync(new \App\Jobs\DispatchPredictionJob($prediction));
+            // R2 slide (SVS) — async queue, webhook delivers result later
+            // SVS processing takes 30s+ on CPU, would exceed Heroku's 30s request timeout
+            dispatch(new \App\Jobs\DispatchPredictionJob($prediction));
         } else {
-            // .pt features file OR clinical-only — HF responds in seconds
+            // .pt features file OR clinical-only — HF responds in seconds, safe to run sync
             dispatch_sync(new \App\Jobs\DispatchPredictionJob($prediction));
         }
 
