@@ -77,9 +77,9 @@ class XaiResultController extends Controller
             ], 404);
         }
 
-        // Generate presigned URLs for both heatmap and segmentation
+        // Generate presigned URLs for heatmap, segmentation, and patches
         $s3 = null;
-        if ($xai->heatmap_path || $xai->segmentation_path) {
+        if ($xai->heatmap_path || $xai->segmentation_path || $xai->patches_path) {
             try {
                 $s3 = new \Aws\S3\S3Client([
                     'version'                 => 'latest',
@@ -116,6 +116,16 @@ class XaiResultController extends Controller
             }
         }
 
+        $patchesUrl = null;
+        if ($s3 && $xai->patches_path) {
+            try {
+                $cmd = $s3->getCommand('GetObject', ['Bucket' => config('services.r2.bucket'), 'Key' => $xai->patches_path]);
+                $patchesUrl = (string) $s3->createPresignedRequest($cmd, '+24 hours')->getUri();
+            } catch (\Throwable $e) {
+                \Illuminate\Support\Facades\Log::warning("Failed to presign patches: {$e->getMessage()}");
+            }
+        }
+
         return response()->json([
             'prediction_id'  => $prediction->id,
             'is_lum_a'       => $prediction->is_lum_a,
@@ -126,6 +136,8 @@ class XaiResultController extends Controller
                 'heatmap_url'       => $heatmapUrl,
                 'segmentation_path' => $xai->segmentation_path,
                 'segmentation_url'  => $segmentationUrl,
+                'patches_path'      => $xai->patches_path,
+                'patches_url'       => $patchesUrl,
                 'heatmap_status'    => $xai->heatmap_status,
                 'shap_plot_path'    => $xai->shap_plot_path,
                 'shap_status'       => $xai->shap_status,

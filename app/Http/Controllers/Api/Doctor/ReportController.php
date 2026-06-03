@@ -119,8 +119,9 @@ class ReportController extends Controller
         $xaiResult = $report->prediction?->xaiResult;
         $heatmapPath = $xaiResult?->heatmap_path;
         $segmentationPath = $xaiResult?->segmentation_path;
+        $patchesPath = $xaiResult?->patches_path;
 
-        if ($heatmapPath || $segmentationPath) {
+        if ($heatmapPath || $segmentationPath || $patchesPath) {
             try {
                 $s3 = new \Aws\S3\S3Client([
                     'version'                 => 'latest',
@@ -139,6 +140,10 @@ class ReportController extends Controller
                 if ($segmentationPath) {
                     $cmd = $s3->getCommand('GetObject', ['Bucket' => config('services.r2.bucket'), 'Key' => $segmentationPath]);
                     $reportArr['segmentation_url'] = (string) $s3->createPresignedRequest($cmd, '+24 hours')->getUri();
+                }
+                if ($patchesPath) {
+                    $cmd = $s3->getCommand('GetObject', ['Bucket' => config('services.r2.bucket'), 'Key' => $patchesPath]);
+                    $reportArr['patches_url'] = (string) $s3->createPresignedRequest($cmd, '+24 hours')->getUri();
                 }
             } catch (\Throwable $e) {
                 \Illuminate\Support\Facades\Log::warning("Failed to presign XAI images for report {$report->id}: {$e->getMessage()}");
@@ -371,10 +376,12 @@ class ReportController extends Controller
         // Try to fetch heatmap image from R2 (if available) and embed as base64
         $heatmapBase64 = '';
         $segmentationBase64 = '';
+        $patchesBase64 = '';
         $xaiR2Key = $xai?->heatmap_path;
         $segR2Key = $xai?->segmentation_path;
+        $patchesR2Key = $xai?->patches_path;
 
-        if ($xaiR2Key || $segR2Key) {
+        if ($xaiR2Key || $segR2Key || $patchesR2Key) {
             try {
                 $s3 = new \Aws\S3\S3Client([
                     'version'                 => 'latest',
@@ -394,6 +401,10 @@ class ReportController extends Controller
                     $bytes = $s3->getObject(['Bucket' => config('services.r2.bucket'), 'Key' => $segR2Key])['Body']->getContents();
                     $segmentationBase64 = 'data:image/png;base64,' . base64_encode($bytes);
                 }
+                if ($patchesR2Key) {
+                    $bytes = $s3->getObject(['Bucket' => config('services.r2.bucket'), 'Key' => $patchesR2Key])['Body']->getContents();
+                    $patchesBase64 = 'data:image/png;base64,' . base64_encode($bytes);
+                }
             } catch (\Throwable $e) {
                 \Illuminate\Support\Facades\Log::warning("[Report] Failed to fetch XAI images: {$e->getMessage()}");
             }
@@ -412,12 +423,18 @@ class ReportController extends Controller
         }
 
         $heatmapSection = $heatmapBase64
-            ? "<div class='heatmap-section'><img src='{$heatmapBase64}' alt='Top patches grid' style='width:100%;max-width:600px;border-radius:8px;border:1px solid #e2e8f0;' /><p class='heatmap-caption'>Top-20 patches the model focused on. Each tile is a real region from the WSI labeled with its attention score.</p></div>"
-            : "<p style='font-size:12px;color:#94a3b8;font-style:italic;'>Top-attended patches visualization not available for this prediction (clinical-only mode).</p>";
+            ? "<div class='heatmap-section'><img src='{$heatmapBase64}' alt='Attention heatmap overlay' style='width:100%;max-width:600px;border-radius:8px;border:1px solid #e2e8f0;' /><p class='heatmap-caption'>Continuous attention heatmap overlaid on the slide. Hot colors (yellow/red) indicate regions the model focused on most. Numbered circles mark top-attended patches.</p></div>"
+            : "<p style='font-size:12px;color:#94a3b8;font-style:italic;'>Attention heatmap not available for this prediction.</p>";
 
         $segmentationSection = $segmentationBase64
             ? "<div class='section'><div class='section-title'>Tissue Segmentation Map</div><div class='heatmap-section'><img src='{$segmentationBase64}' alt='Tissue segmentation map' style='width:100%;max-width:600px;border-radius:8px;border:1px solid #e2e8f0;' /><p class='heatmap-caption'>Numbered circles show the top-attended tissue regions on the slide thumbnail. Gold = highest attention.</p></div></div>"
             : "";
+
+        $patchesSection = $patchesBase64
+            ? "<div class='section'><div class='section-title'>Top-Attended Histopathology Patches</div><div class='heatmap-section'><img src='{$patchesBase64}' alt='Top attended patches grid' style='width:100%;max-width:600px;border-radius:8px;border:1px solid #e2e8f0;' /><p class='heatmap-caption'>The 20 tissue patches the model attended to most. Each tile shows the actual WSI region with its attention score. Gold border = top-3, orange = top-8.</p></div></div>"
+            : ($heatmapBase64
+                ? ""
+                : "<p style='font-size:12px;color:#94a3b8;font-style:italic;'>Top-attended patches visualization not available for this prediction (clinical-only mode).</p>");
 
         $patchesTable = $patchesRows
             ? "<table class='patches-table'><thead><tr><th>Rank</th><th>Patch ID</th><th>Attention Score</th></tr></thead><tbody>{$patchesRows}</tbody></table>"
@@ -661,14 +678,17 @@ body { font-family: 'DejaVu Sans', Arial, sans-serif; margin: 0; padding: 0; col
   </div>
 </div>
 
+<!-- Attention Heatmap -->
+<div class="section">
+  <div class="section-title">Attention Heatmap</div>
+  {$heatmapSection}
+</div>
+
 <!-- Tissue Segmentation Map -->
 {$segmentationSection}
 
-<!-- Top Histopathology Patches Image -->
-<div class="section">
-  <div class="section-title">Top-Attended Histopathology Patches</div>
-  {$heatmapSection}
-</div>
+<!-- Top Histopathology Patches Grid -->
+{$patchesSection}
 
 {$clinicalNotes}
 

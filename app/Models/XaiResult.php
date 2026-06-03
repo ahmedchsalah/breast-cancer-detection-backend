@@ -14,6 +14,7 @@ class XaiResult extends Model
         'prediction_id',
         'heatmap_path',
         'segmentation_path',
+        'patches_path',
         'heatmap_status',
         'shap_values',
         'shap_plot_path',
