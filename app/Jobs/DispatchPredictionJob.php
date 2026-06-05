@@ -274,10 +274,13 @@ class DispatchPredictionJob implements ShouldQueue
             ];
         }
 
-        // R2 heatmap key (uploaded by HF for SVS predictions)
-        $heatmapPath = $data['xai_r2_key'] ?? null;
+        // R2 image keys (uploaded by HF for SVS predictions)
+        // xai_r2_key  = zoomed tissue segmentation overlay (primary view)
+        // patches_r2_key = grid of top-attended patch thumbnails
+        $heatmapPath  = $data['xai_r2_key']    ?? null;
+        $patchesPath  = $data['patches_r2_key'] ?? null;
 
-        if (empty($topFeatures) && !$heatmapPath) {
+        if (empty($topFeatures) && !$heatmapPath && !$patchesPath) {
             return; // Nothing to save
         }
 
@@ -287,6 +290,7 @@ class DispatchPredictionJob implements ShouldQueue
                 'top_features'  => $topFeatures,
                 'shap_status'   => 'completed',
                 'heatmap_path'  => $heatmapPath,
+                'patches_path'  => $patchesPath,
                 'heatmap_status'=> $heatmapPath ? 'completed' : (empty($data['patch_attention']) ? 'pending' : 'completed'),
             ]
         );

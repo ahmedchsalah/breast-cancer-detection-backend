@@ -130,6 +130,35 @@ class PatientController extends Controller
     }
 
     // ============================================================
+    //  NEXT IDENTIFIER (preview)
+    // ============================================================
+
+    #[OA\Get(
+        path: "/doctor/patients/next-identifier",
+        tags: ["Doctor — Patients"],
+        summary: "Preview the next auto-generated BRECAI-FED patient identifier",
+        security: [["sanctum" => []]],
+        responses: [
+            new OA\Response(
+                response: 200,
+                description: "Next identifier",
+                content: new OA\JsonContent(properties: [
+                    new OA\Property(property: "patient_identifier", type: "string"),
+                    new OA\Property(property: "format",             type: "string"),
+                ])
+            ),
+        ]
+    )]
+    public function nextIdentifier(): JsonResponse
+    {
+        $orgId = $this->doctor()->organization_id;
+        return response()->json([
+            'patient_identifier' => Patient::generateIdentifier($orgId),
+            'format'             => 'BRECAI-FED-{org}-{seq}-{rand}',
+        ]);
+    }
+
+    // ============================================================
     //  STORE
     // ============================================================
 

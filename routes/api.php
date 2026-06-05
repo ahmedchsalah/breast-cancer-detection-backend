@@ -305,6 +305,7 @@ Route::middleware('auth:sanctum')->group(function () {
         });
 
         // Patient management (full CRUD)
+        Route::get('patients/next-identifier', [DoctorPatientController::class, 'nextIdentifier']);
         Route::apiResource('patients', DoctorPatientController::class);
 
         // Examination lifecycle
