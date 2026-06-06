@@ -244,8 +244,8 @@ class PredictionWebhookController extends Controller
             // Allow dompdf to fetch remote presigned URLs; raise memory ceiling for large WSI images
             @ini_set('memory_limit', '512M');
             $pdf = \Barryvdh\DomPDF\Facade\Pdf::loadHTML($htmlContent)->setPaper('a4', 'portrait');
-            $pdf->getDomPDF()->set_option('isRemoteEnabled', true);
-            $pdf->getDomPDF()->set_option('isHtml5ParserEnabled', true);
+            $pdf->getDomPDF()->setOption('isRemoteEnabled', true);
+            $pdf->getDomPDF()->setOption('isHtml5ParserEnabled', true);
             $pdfBytes   = $pdf->output();
             $b64Content = base64_encode($pdfBytes);
             $filename   = 'report-' . ($report->patient?->patient_identifier ?? $report->id) . '-' . $report->id . '.pdf';
