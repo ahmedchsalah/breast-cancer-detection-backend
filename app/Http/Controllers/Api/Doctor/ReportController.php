@@ -280,35 +280,73 @@ class ReportController extends Controller
     {
         $this->ensureOwnership($report);
 
-        if ($report->status === Report::STATUS_FINAL) {
-            return response()->json(['message' => 'Report is already finalized.'], 422);
+        $alreadyFinal = $report->status === Report::STATUS_FINAL;
+        if (!$alreadyFinal) {
+            $report->update(['status' => Report::STATUS_FINAL]);
         }
 
-        $report->update(['status' => Report::STATUS_FINAL]);
-
-        // Send report to doctor via email with PDF attached
+        // Send (or resend) report to doctor via email with PDF attached
         $doctor = auth()->user();
+        $emailSent = false;
+        $emailError = null;
         try {
             $report->load(['patient', 'prediction.aiModel', 'examination', 'prediction.xaiResult']);
 
-            // Generate HTML report content
-            $htmlContent = $this->generateReportHtml($report, $doctor);
+            // Generate presigned URLs for XAI images (avoids dompdf base64 OOM)
+            $xai = $report->prediction?->xaiResult;
+            $imageUrls = [];
+            if ($xai && ($xai->heatmap_path || $xai->segmentation_path || $xai->patches_path)) {
+                try {
+                    $s3 = new \Aws\S3\S3Client([
+                        'version'                 => 'latest',
+                        'region'                  => 'auto',
+                        'endpoint'                => config('services.r2.endpoint'),
+                        'use_path_style_endpoint' => true,
+                        'credentials'             => ['key' => config('services.r2.access_key'), 'secret' => config('services.r2.secret_key')],
+                    ]);
+                    $bucket = config('services.r2.bucket');
+                    if ($xai->heatmap_path) {
+                        $cmd = $s3->getCommand('GetObject', ['Bucket' => $bucket, 'Key' => $xai->heatmap_path]);
+                        $imageUrls['heatmap'] = (string) $s3->createPresignedRequest($cmd, '+1 hour')->getUri();
+                    }
+                    if ($xai->segmentation_path) {
+                        $cmd = $s3->getCommand('GetObject', ['Bucket' => $bucket, 'Key' => $xai->segmentation_path]);
+                        $imageUrls['segmentation'] = (string) $s3->createPresignedRequest($cmd, '+1 hour')->getUri();
+                    }
+                    if ($xai->patches_path) {
+                        $cmd = $s3->getCommand('GetObject', ['Bucket' => $bucket, 'Key' => $xai->patches_path]);
+                        $imageUrls['patches'] = (string) $s3->createPresignedRequest($cmd, '+1 hour')->getUri();
+                    }
+                } catch (\Throwable $e) {
+                    \Illuminate\Support\Facades\Log::warning("[Report] Could not presign XAI images for report #{$report->id}: {$e->getMessage()}");
+                }
+            }
 
-            // Convert HTML to real PDF using dompdf
+            $htmlContent = $this->generateReportHtml($report, $doctor, $imageUrls);
+
+            @ini_set('memory_limit', '512M');
             $pdf = \Barryvdh\DomPDF\Facade\Pdf::loadHTML($htmlContent)->setPaper('a4', 'portrait');
-            $pdfBytes = $pdf->output();
+            $pdf->getDomPDF()->setOption('isRemoteEnabled', true);
+            $pdf->getDomPDF()->setOption('isHtml5ParserEnabled', true);
+            $pdfBytes   = $pdf->output();
             $b64Content = base64_encode($pdfBytes);
-            $filename = "report-{$report->patient?->patient_identifier}-{$report->id}.pdf";
+            $filename   = "report-{$report->patient?->patient_identifier}-{$report->id}.pdf";
 
             \Illuminate\Support\Facades\Mail::to($doctor->email)
                 ->send(new \App\Mail\ReportGeneratedMail($report, $doctor, $b64Content, $filename));
 
+            $emailSent = true;
             \Illuminate\Support\Facades\Log::info("[Report] PDF email sent to {$doctor->email} for report #{$report->id}");
         } catch (\Throwable $e) {
-            \Illuminate\Support\Facades\Log::warning("[Report] Email failed for report #{$report->id}: {$e->getMessage()}");
+            $emailError = $e->getMessage();
+            \Illuminate\Support\Facades\Log::error("[Report] Email FAILED for report #{$report->id}: {$emailError}");
         }
 
-        return response()->json(['message' => 'Report finalized and sent to your email.', 'report' => $report->fresh()]);
+        $msg = $alreadyFinal
+            ? ($emailSent ? 'Report email resent successfully.' : "Report already finalized but email failed: {$emailError}")
+            : ($emailSent ? 'Report finalized and sent to your email.' : 'Report finalized (email delivery failed — check server logs).');
+
+        return response()->json(['message' => $msg, 'report' => $report->fresh()]);
     }
 
     public function generateReportHtml(Report $report, $doctor, array $imageUrls = []): string
