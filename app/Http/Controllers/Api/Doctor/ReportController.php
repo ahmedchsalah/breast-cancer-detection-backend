@@ -311,7 +311,7 @@ class ReportController extends Controller
         return response()->json(['message' => 'Report finalized and sent to your email.', 'report' => $report->fresh()]);
     }
 
-    public function generateReportHtml(Report $report, $doctor): string
+    public function generateReportHtml(Report $report, $doctor, array $imageUrls = []): string
     {
         $patient   = $report->patient;
         $pred      = $report->prediction;
@@ -373,15 +373,21 @@ class ReportController extends Controller
         $imgPct      = $fusionGate ? round($fusionGate['image_weight'] * 100) : 50;
         $clinPct     = $fusionGate ? round($fusionGate['clinical_weight'] * 100) : 50;
 
-        // Try to fetch heatmap image from R2 (if available) and embed as base64
+        // Images: use pre-supplied URLs (for email PDF) or fetch+embed as base64 (for browser print)
         $heatmapBase64 = '';
         $segmentationBase64 = '';
         $patchesBase64 = '';
-        $xaiR2Key = $xai?->heatmap_path;
-        $segR2Key = $xai?->segmentation_path;
+        $xaiR2Key     = $xai?->heatmap_path;
+        $segR2Key     = $xai?->segmentation_path;
         $patchesR2Key = $xai?->patches_path;
 
-        if ($xaiR2Key || $segR2Key || $patchesR2Key) {
+        if (!empty($imageUrls)) {
+            // Email mode: caller provides presigned URLs — use them directly as <img src>
+            $heatmapBase64     = $imageUrls['heatmap']     ?? '';
+            $segmentationBase64 = $imageUrls['segmentation'] ?? '';
+            $patchesBase64     = $imageUrls['patches']     ?? '';
+        } elseif ($xaiR2Key || $segR2Key || $patchesR2Key) {
+            // Browser mode: fetch bytes from R2 and embed as data URIs
             try {
                 $s3 = new \Aws\S3\S3Client([
                     'version'                 => 'latest',
