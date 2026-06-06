@@ -311,7 +311,7 @@ class ReportController extends Controller
         return response()->json(['message' => 'Report finalized and sent to your email.', 'report' => $report->fresh()]);
     }
 
-    private function generateReportHtml(Report $report, $doctor): string
+    public function generateReportHtml(Report $report, $doctor): string
     {
         $patient   = $report->patient;
         $pred      = $report->prediction;
@@ -709,7 +709,7 @@ body { font-family: 'DejaVu Sans', Arial, sans-serif; margin: 0; padding: 0; col
 HTML;
     }
 
-    private function statusLabel(string $status): string
+    public function statusLabel(string $status): string
     {
         return match ($status) {
             'final', 'finalized' => 'FINALIZED',
@@ -718,7 +718,7 @@ HTML;
         };
     }
 
-    private function bioStr($patient): string
+    public function bioStr($patient): string
     {
         if (!$patient) return '—';
         $er  = $patient->er_status  ? 'ER+' : 'ER-';
@@ -727,7 +727,7 @@ HTML;
         return "{$er} / {$pr} / {$her}";
     }
 
-    private function pct($val): string
+    public function pct($val): string
     {
         return number_format(($val ?? 0) * 100, 1);
     }

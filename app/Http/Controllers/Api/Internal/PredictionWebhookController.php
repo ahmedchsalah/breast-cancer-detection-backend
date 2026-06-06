@@ -151,7 +151,7 @@ class PredictionWebhookController extends Controller
             );
         }
 
-        // Auto-conclude examination + auto-create report (same as DispatchPredictionJob)
+        // Auto-conclude examination + auto-create & finalize report + send email
         if ($validated['status'] === 'completed') {
             try {
                 $examination = $prediction->examination;
@@ -163,10 +163,10 @@ class PredictionWebhookController extends Controller
                         'doctor_conclusion' => "AI Classification: {$label} ({$conf}% confidence). Auto-concluded.",
                     ]);
 
-                    // Auto-create report
-                    $existingReport = \App\Models\Report::where('prediction_id', $prediction->id)->first();
-                    if (!$existingReport) {
-                        \App\Models\Report::create([
+                    // Auto-create report (or fetch existing)
+                    $report = \App\Models\Report::where('prediction_id', $prediction->id)->first();
+                    if (!$report) {
+                        $report = \App\Models\Report::create([
                             'examination_id'  => $examination->id,
                             'prediction_id'   => $prediction->id,
                             'patient_id'      => $prediction->patient_id,
@@ -175,6 +175,13 @@ class PredictionWebhookController extends Controller
                             'status'          => 'draft',
                         ]);
                     }
+
+                    // Auto-finalize the report and email it to the doctor
+                    if ($report->status !== 'final') {
+                        $report->update(['status' => 'final']);
+                    }
+
+                    $this->sendReportEmail($report);
                 }
             } catch (\Throwable $e) {
                 Log::warning("Webhook: Auto-report failed for prediction {$prediction->id}: {$e->getMessage()}");
@@ -184,5 +191,34 @@ class PredictionWebhookController extends Controller
         Log::info("Webhook: Prediction {$prediction->id} marked as {$validated['status']}.");
 
         return response()->json(['message' => 'Prediction result recorded successfully.']);
+    }
+
+    private function sendReportEmail(\App\Models\Report $report): void
+    {
+        try {
+            $doctor = \App\Models\User::find($report->doctor_id);
+            if (!$doctor || !$doctor->email) {
+                Log::warning("Webhook: Cannot send report email — doctor not found for report #{$report->id}");
+                return;
+            }
+            $doctor->load('organization');
+
+            $report->load(['patient', 'prediction.aiModel', 'examination', 'prediction.xaiResult']);
+
+            $reportController = new \App\Http\Controllers\Api\Doctor\ReportController();
+            $htmlContent = $reportController->generateReportHtml($report, $doctor);
+
+            $pdf = \Barryvdh\DomPDF\Facade\Pdf::loadHTML($htmlContent)->setPaper('a4', 'portrait');
+            $pdfBytes = $pdf->output();
+            $b64Content = base64_encode($pdfBytes);
+            $filename = "report-{$report->patient?->patient_identifier}-{$report->id}.pdf";
+
+            \Illuminate\Support\Facades\Mail::to($doctor->email)
+                ->send(new \App\Mail\ReportGeneratedMail($report, $doctor, $b64Content, $filename));
+
+            Log::info("Webhook: Report email sent to {$doctor->email} for report #{$report->id}");
+        } catch (\Throwable $e) {
+            Log::warning("Webhook: Report email failed for report #{$report->id}: {$e->getMessage()}");
+        }
     }
 }
