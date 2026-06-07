@@ -66,10 +66,21 @@ class ReportMailerService
             $htmlContent = $reportController->generateReportHtml($report, $doctor, $imageUrls);
 
             // Allow dompdf to fetch remote presigned URLs; raise memory ceiling for large WSI images
+            //
+            // NOTE: setOption()/setOptions() live on the Barryvdh\DomPDF\PDF
+            // *wrapper* (what loadHTML() returns) — calling them on
+            // ->getDomPDF() (the raw Dompdf\Dompdf instance) throws
+            // "Call to undefined method Dompdf\Dompdf::setOption()" on every
+            // single report, which finalizeAndSend's catch-all swallowed and
+            // logged at `error` level into storage/logs/laravel.log — a path
+            // that doesn't survive on Heroku's ephemeral filesystem and never
+            // surfaces in `heroku logs`, so every report silently failed
+            // before ever reaching Mail::send().
             @ini_set('memory_limit', '512M');
-            $pdf = \Barryvdh\DomPDF\Facade\Pdf::loadHTML($htmlContent)->setPaper('a4', 'portrait');
-            $pdf->getDomPDF()->setOption('isRemoteEnabled', true);
-            $pdf->getDomPDF()->setOption('isHtml5ParserEnabled', true);
+            $pdf = \Barryvdh\DomPDF\Facade\Pdf::loadHTML($htmlContent)
+                ->setPaper('a4', 'portrait')
+                ->setOption('isRemoteEnabled', true)
+                ->setOption('isHtml5ParserEnabled', true);
             $pdfBytes   = $pdf->output();
             $b64Content = base64_encode($pdfBytes);
             $filename   = 'report-' . ($report->patient?->patient_identifier ?? $report->id) . '-' . $report->id . '.pdf';
