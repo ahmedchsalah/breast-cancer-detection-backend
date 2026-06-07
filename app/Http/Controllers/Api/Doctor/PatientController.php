@@ -26,6 +26,7 @@ use OpenApi\Attributes as OA;
         new OA\Property(property: "buffa_hypoxia_score", type: "number", format: "float", nullable: true),
         new OA\Property(property: "ragnum_hypoxia_score", type: "number", format: "float", nullable: true),
         new OA\Property(property: "winter_hypoxia_score", type: "number", format: "float", nullable: true),
+        new OA\Property(property: "tumor_break_load", type: "number", format: "float", nullable: true),
         new OA\Property(property: "created_at", type: "string", format: "date-time"),
     ]
 )]
@@ -184,6 +185,7 @@ class PatientController extends Controller
                     new OA\Property(property: "buffa_hypoxia_score", type: "number", format: "float", nullable: true),
                     new OA\Property(property: "ragnum_hypoxia_score", type: "number", format: "float", nullable: true),
                     new OA\Property(property: "winter_hypoxia_score", type: "number", format: "float", nullable: true),
+                    new OA\Property(property: "tumor_break_load", type: "number", format: "float", nullable: true),
                 ]
             )
         ),
@@ -207,6 +209,7 @@ class PatientController extends Controller
             'buffa_hypoxia_score'     => 'nullable|numeric',
             'ragnum_hypoxia_score'    => 'nullable|numeric',
             'winter_hypoxia_score'    => 'nullable|numeric',
+            'tumor_break_load'        => 'nullable|numeric',
         ]);
 
         $validated['organization_id'] = $this->doctor()->organization_id;
@@ -248,6 +251,7 @@ class PatientController extends Controller
                     new OA\Property(property: "buffa_hypoxia_score", type: "number", format: "float", nullable: true),
                     new OA\Property(property: "ragnum_hypoxia_score", type: "number", format: "float", nullable: true),
                     new OA\Property(property: "winter_hypoxia_score", type: "number", format: "float", nullable: true),
+                    new OA\Property(property: "tumor_break_load", type: "number", format: "float", nullable: true),
                 ]
             )
         ),
@@ -274,6 +278,7 @@ class PatientController extends Controller
             'buffa_hypoxia_score'     => 'nullable|numeric',
             'ragnum_hypoxia_score'    => 'nullable|numeric',
             'winter_hypoxia_score'    => 'nullable|numeric',
+            'tumor_break_load'        => 'nullable|numeric',
         ]);
 
         $patient->update($validated);

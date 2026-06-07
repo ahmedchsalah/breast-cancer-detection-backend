@@ -40,6 +40,7 @@ class Patient extends Model
         'buffa_hypoxia_score',
         'ragnum_hypoxia_score',
         'winter_hypoxia_score',
+        'tumor_break_load',
     ];
 
     protected $casts = [
@@ -52,6 +53,7 @@ class Patient extends Model
         'buffa_hypoxia_score'     => 'float',
         'ragnum_hypoxia_score'    => 'float',
         'winter_hypoxia_score'    => 'float',
+        'tumor_break_load'        => 'float',
     ];
 
     /**

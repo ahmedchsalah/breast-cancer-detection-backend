@@ -207,6 +207,7 @@ class PredictionController extends Controller
             'buffa_hypoxia_score'     => $patient->buffa_hypoxia_score,
             'ragnum_hypoxia_score'    => $patient->ragnum_hypoxia_score,
             'winter_hypoxia_score'    => $patient->winter_hypoxia_score,
+            'tumor_break_load'        => $patient->tumor_break_load,
         ];
 
         // Create the prediction record immediately (status: pending)

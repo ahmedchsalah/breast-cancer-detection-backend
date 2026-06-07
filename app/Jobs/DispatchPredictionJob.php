@@ -69,15 +69,21 @@ class DispatchPredictionJob implements ShouldQueue
             'ragnum_hypoxia_score'    => $patient->ragnum_hypoxia_score,
             'winter_hypoxia_score'    => $patient->winter_hypoxia_score,
             'fraction_genome_altered' => $patient->fraction_genome_altered,
-            'tumor_break_load'        => null,
+            'tumor_break_load'        => $patient->tumor_break_load,
             'pr_pct_score'            => null,
             'is_ductal'               => 0.0,
             'is_lobular'              => 0.0,
         ];
 
         // ── Determine inference mode ──────────────────────────────────────────
+        // FULL whenever ANY real genomic value is on file — the FastAPI side
+        // fills the rest with 0.0 and still flags genomic_available = 1.0,
+        // which matches how the model was trained (partial genomic panels).
         $hasGenomics = $patient->fraction_genome_altered !== null
-            || $patient->buffa_hypoxia_score !== null;
+            || $patient->buffa_hypoxia_score  !== null
+            || $patient->ragnum_hypoxia_score !== null
+            || $patient->winter_hypoxia_score !== null
+            || $patient->tumor_break_load     !== null;
         $mode = $hasGenomics ? 'FULL' : 'DZ';
 
         // ── Check if we have a slide in R2 or a local .pt file ──────────────
