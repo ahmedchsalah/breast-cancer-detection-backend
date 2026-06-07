@@ -91,7 +91,8 @@
             "php-http/discovery": true
         },
         "platform": {
-            "ext-sodium": "7.4"
+            "ext-sodium": "7.4",
+            "ext-gd": "8.2"
         }
     },
     "minimum-stability": "stable",
