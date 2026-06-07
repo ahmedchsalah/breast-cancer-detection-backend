@@ -326,10 +326,10 @@ class DispatchPredictionJob implements ShouldQueue
                 Log::info("[BReCAI] Examination #{$examination->id} auto-concluded.");
             }
 
-            // Auto-create draft report if none exists
-            $existingReport = \App\Models\Report::where('prediction_id', $prediction->id)->first();
-            if (! $existingReport && $examination->status === \App\Models\Examination::STATUS_CONCLUDED) {
-                \App\Models\Report::create([
+            // Auto-create report if none exists yet
+            $report = \App\Models\Report::where('prediction_id', $prediction->id)->first();
+            if (! $report && $examination->status === \App\Models\Examination::STATUS_CONCLUDED) {
+                $report = \App\Models\Report::create([
                     'examination_id'  => $examination->id,
                     'prediction_id'   => $prediction->id,
                     'patient_id'      => $prediction->patient_id,
@@ -339,7 +339,15 @@ class DispatchPredictionJob implements ShouldQueue
                     'notes'           => null,
                 ]);
 
-                Log::info("[BReCAI] Draft report auto-created for prediction #{$prediction->id}.");
+                Log::info("[BReCAI] Report auto-created for prediction #{$prediction->id}.");
+            }
+
+            // Finalize + email — this is the synchronous counterpart of what
+            // PredictionWebhookController does for the async R2/SVS flow. Without
+            // this, predictions that complete synchronously (clinical-only and
+            // local-.pt A6) stayed in 'draft' forever and never emailed the doctor.
+            if ($report) {
+                \App\Services\ReportMailerService::finalizeAndSend($report);
             }
         } catch (\Throwable $e) {
             // Don't fail the job if report creation fails — prediction is already saved
