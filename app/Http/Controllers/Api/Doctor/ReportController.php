@@ -6,6 +6,7 @@ use App\Http\Controllers\Controller;
 use App\Models\Examination;
 use App\Models\Prediction;
 use App\Models\Report;
+use App\Support\ArabicText;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Storage;
@@ -413,18 +414,18 @@ class ReportController extends Controller
 
         // Images: use pre-supplied URLs (for email PDF) or fetch+embed as base64 (for browser print)
         $heatmapBase64 = '';
-        $segmentationBase64 = '';
         $patchesBase64 = '';
         $xaiR2Key     = $xai?->heatmap_path;
-        $segR2Key     = $xai?->segmentation_path;
         $patchesR2Key = $xai?->patches_path;
 
+        // Only the attention heatmap and the top-patches grid are rendered now;
+        // the tissue-segmentation overlay was dropped because it duplicated the
+        // heatmap's "where the model looked" view, so we no longer fetch it.
         if (!empty($imageUrls)) {
             // Email mode: caller provides presigned URLs — use them directly as <img src>
-            $heatmapBase64     = $imageUrls['heatmap']     ?? '';
-            $segmentationBase64 = $imageUrls['segmentation'] ?? '';
-            $patchesBase64     = $imageUrls['patches']     ?? '';
-        } elseif ($xaiR2Key || $segR2Key || $patchesR2Key) {
+            $heatmapBase64 = $imageUrls['heatmap'] ?? '';
+            $patchesBase64 = $imageUrls['patches'] ?? '';
+        } elseif ($xaiR2Key || $patchesR2Key) {
             // Browser mode: fetch bytes from R2 and embed as data URIs
             try {
                 $s3 = new \Aws\S3\S3Client([
@@ -440,10 +441,6 @@ class ReportController extends Controller
                 if ($xaiR2Key) {
                     $bytes = $s3->getObject(['Bucket' => config('services.r2.bucket'), 'Key' => $xaiR2Key])['Body']->getContents();
                     $heatmapBase64 = 'data:image/png;base64,' . base64_encode($bytes);
-                }
-                if ($segR2Key) {
-                    $bytes = $s3->getObject(['Bucket' => config('services.r2.bucket'), 'Key' => $segR2Key])['Body']->getContents();
-                    $segmentationBase64 = 'data:image/png;base64,' . base64_encode($bytes);
                 }
                 if ($patchesR2Key) {
                     $bytes = $s3->getObject(['Bucket' => config('services.r2.bucket'), 'Key' => $patchesR2Key])['Body']->getContents();
@@ -470,10 +467,6 @@ class ReportController extends Controller
             ? "<div class='heatmap-section'><img src='{$heatmapBase64}' alt='Attention heatmap overlay' style='width:100%;max-width:600px;border-radius:8px;border:1px solid #e2e8f0;' /><p class='heatmap-caption'>Continuous attention heatmap overlaid on the slide. Hot colors (yellow/red) indicate regions the model focused on most. Numbered circles mark top-attended patches.</p></div>"
             : "<p style='font-size:12px;color:#94a3b8;font-style:italic;'>Attention heatmap not available for this prediction.</p>";
 
-        $segmentationSection = $segmentationBase64
-            ? "<div class='section'><div class='section-title'>Tissue Segmentation Map</div><div class='heatmap-section'><img src='{$segmentationBase64}' alt='Tissue segmentation map' style='width:100%;max-width:600px;border-radius:8px;border:1px solid #e2e8f0;' /><p class='heatmap-caption'>Numbered circles show the top-attended tissue regions on the slide thumbnail. Gold = highest attention.</p></div></div>"
-            : "";
-
         $patchesSection = $patchesBase64
             ? "<div class='section'><div class='section-title'>Top-Attended Histopathology Patches</div><div class='heatmap-section'><img src='{$patchesBase64}' alt='Top attended patches grid' style='width:100%;max-width:600px;border-radius:8px;border:1px solid #e2e8f0;' /><p class='heatmap-caption'>The 20 tissue patches the model attended to most. Each tile shows the actual WSI region with its attention score. Gold border = top-3, orange = top-8.</p></div></div>"
             : ($heatmapBase64
@@ -488,6 +481,28 @@ class ReportController extends Controller
 
         $orgName = $doctor->organization?->name ?? 'BReCAI Platform';
 
+        // Normalise the physician's display name so we never print "Dr. Dr. X"
+        $docClean = trim(preg_replace('/^\s*(Dr\.?|Prof\.?|Pr\.?)\s+/i', '', (string) $doctor->name));
+        $docTitle = 'Dr. ' . ($docClean !== '' ? $docClean : (string) $doctor->name);
+
+        // ── Pre-shape every Arabic string for dompdf (which has no Arabic
+        //    shaping or bidi). Headings/labels are single-line (maxChars 0);
+        //    the long therapy paragraphs sit in ~50%-width cells, so we wrap
+        //    them at ~40 chars to keep multi-line RTL reading top-to-bottom.
+        $arHeaderTitle   = ArabicText::shape('الخطة العلاجية الموصى بها');
+        $arPlanLabel     = ArabicText::shape('خطة العلاج');
+        $arLblPrimary    = ArabicText::shape('طريقة العلاج الأساسية');
+        $arLblAgents     = ArabicText::shape('الأدوية والعوامل العلاجية');
+        $arLblRational   = ArabicText::shape('المبرر السريري');
+        $arLblPrognos    = ArabicText::shape('التنبؤ بسير المرض / الإنذار');
+        $arLblAdditional = ArabicText::shape('اعتبارات إضافية');
+
+        $therapyPrimaryAr    = ArabicText::shape($therapyPrimaryAr, 40);
+        $therapyAgentsAr     = ArabicText::shape($therapyAgentsAr, 40);
+        $therapyRationAr     = ArabicText::shape($therapyRationAr, 40);
+        $therapyPrognosAr    = ArabicText::shape($therapyPrognosAr, 40);
+        $therapyAdditionalAr = ArabicText::shape($therapyAdditionalAr, 40);
+
         return <<<HTML
 <!DOCTYPE html><html><head><meta charset="UTF-8"/>
 <title>EMR · Clinical Report {$reportNum}</title>
@@ -497,14 +512,17 @@ class ReportController extends Controller
 body { font-family: 'DejaVu Sans', Arial, sans-serif; margin: 0; padding: 0; color: #1e293b; font-size: 11px; line-height: 1.5; }
 
 /* Header */
-.report-header { background: linear-gradient(135deg, #093A7A 0%, #0572B2 100%); color: white; padding: 22px 28px; border-radius: 14px; margin-bottom: 22px; }
+.report-header { background-color: #093A7A; color: white; padding: 22px 28px; border-radius: 14px; margin-bottom: 22px; }
 .report-header .eyebrow { font-size: 9px; font-weight: 800; text-transform: uppercase; letter-spacing: 2.5px; opacity: 0.7; margin-bottom: 6px; }
 .report-header h1 { margin: 0; font-size: 22px; font-weight: 900; letter-spacing: -0.3px; }
 .report-header .meta { display: flex; gap: 18px; margin-top: 12px; font-size: 10px; opacity: 0.85; flex-wrap: wrap; }
 .subtype-badge { display: inline-block; padding: 4px 14px; border-radius: 20px; font-size: 10px; font-weight: 900; text-transform: uppercase; letter-spacing: 1.2px; margin-top: 10px; background: rgba(255,255,255,0.15); border: 1.5px solid rgba(255,255,255,0.3); }
 
-/* Sections */
-.section { margin-bottom: 18px; page-break-inside: avoid; }
+/* Sections — let long sections (e.g. the therapy table) flow across the page
+   break instead of jumping wholesale to the next page and leaving half a page
+   blank; individual rows/cards below keep page-break-inside:avoid so nothing
+   splits mid-thought. */
+.section { margin-bottom: 18px; }
 .section-title { font-size: 9px; font-weight: 900; text-transform: uppercase; letter-spacing: 2.5px; color: #0572B2; margin-bottom: 8px; padding-bottom: 5px; border-bottom: 2px solid #e2e8f0; }
 
 /* Info grid */
@@ -515,7 +533,7 @@ body { font-family: 'DejaVu Sans', Arial, sans-serif; margin: 0; padding: 0; col
 .info-card .val { font-size: 13px; font-weight: 900; color: #1e293b; }
 
 /* Result box */
-.result-box { background: {$primary}15; border: 2px solid {$primary}40; border-radius: 12px; padding: 16px 20px; margin-bottom: 18px; }
+.result-box { background: {$primary}15; border: 2px solid {$primary}40; border-radius: 12px; padding: 16px 20px; margin-bottom: 18px; page-break-inside: avoid; }
 .result-flex { display: table; width: 100%; }
 .result-main { display: table-cell; vertical-align: middle; }
 .result-conf { display: table-cell; vertical-align: middle; text-align: right; width: 100px; }
@@ -528,7 +546,7 @@ body { font-family: 'DejaVu Sans', Arial, sans-serif; margin: 0; padding: 0; col
 .therapy-box { background: white; border: 1px solid #e2e8f0; border-radius: 10px; overflow: hidden; }
 .therapy-header { background: {$primary}; color: white; padding: 8px 14px; font-size: 10px; font-weight: 900; text-transform: uppercase; letter-spacing: 1.3px; }
 .therapy-body { padding: 12px 14px; }
-.therapy-row { margin-bottom: 12px; }
+.therapy-row { margin-bottom: 12px; page-break-inside: avoid; }
 .therapy-table-row { width: 100%; border-collapse: collapse; border: none; margin: 0; }
 .therapy-table-row td { border: none; padding: 0; vertical-align: top; }
 .therapy-col-en { width: 50%; padding-right: 12px; text-align: left; }
@@ -546,7 +564,7 @@ body { font-family: 'DejaVu Sans', Arial, sans-serif; margin: 0; padding: 0; col
 .gate-legend { font-size: 9px; color: #64748b; font-weight: 700; margin-top: 4px; }
 
 /* Heatmap */
-.heatmap-section { text-align: center; margin: 12px 0; }
+.heatmap-section { text-align: center; margin: 12px 0; page-break-inside: avoid; }
 .heatmap-caption { font-size: 10px; color: #64748b; font-style: italic; margin-top: 6px; }
 
 /* Patches table */
@@ -573,7 +591,7 @@ body { font-family: 'DejaVu Sans', Arial, sans-serif; margin: 0; padding: 0; col
   <div class="meta">
     <span><strong>EMR #</strong> {$reportNum}</span>
     <span><strong>Issued</strong> {$date}</span>
-    <span><strong>Physician</strong> Dr. {$doctor->name}</span>
+    <span><strong>Physician</strong> {$docTitle}</span>
     <span><strong>Institution</strong> {$orgName}</span>
   </div>
   <span class="subtype-badge">{$label} · Confidence {$this->pct($conf)}%</span>
@@ -615,13 +633,13 @@ body { font-family: 'DejaVu Sans', Arial, sans-serif; margin: 0; padding: 0; col
 
 <!-- Therapy Recommendation -->
 <div class="section">
-  <div class="section-title">Recommended Therapeutic Strategy / <span style="font-weight:bold;">الخطة العلاجية الموصى بها</span></div>
+  <div class="section-title">Recommended Therapeutic Strategy / <span style="font-weight:bold;">{$arHeaderTitle}</span></div>
   <div class="therapy-box">
     <div class="therapy-header">
       <table style="width:100%; border-collapse:collapse; border:none; margin:0; padding:0;">
         <tr>
           <td style="width:50%; text-align:left; color:white; font-size:10px; font-weight:900; border:none;">Treatment Plan</td>
-          <td style="width:50%; text-align:right; color:white; font-size:10px; font-weight:bold; border:none; direction:rtl;">خطة العلاج</td>
+          <td style="width:50%; text-align:right; color:white; font-size:10px; font-weight:bold; border:none; direction:rtl;">{$arPlanLabel}</td>
         </tr>
       </table>
     </div>
@@ -635,7 +653,7 @@ body { font-family: 'DejaVu Sans', Arial, sans-serif; margin: 0; padding: 0; col
               <div class="content"><strong>{$therapyPrimary}</strong></div>
             </td>
             <td class="therapy-col-ar">
-              <div class="label-ar">طريقة العلاج الأساسية</div>
+              <div class="label-ar">{$arLblPrimary}</div>
               <div class="content-ar"><strong>{$therapyPrimaryAr}</strong></div>
             </td>
           </tr>
@@ -651,7 +669,7 @@ body { font-family: 'DejaVu Sans', Arial, sans-serif; margin: 0; padding: 0; col
               <div class="content">{$therapyAgents}</div>
             </td>
             <td class="therapy-col-ar">
-              <div class="label-ar">الأدوية والعوامل العلاجية</div>
+              <div class="label-ar">{$arLblAgents}</div>
               <div class="content-ar">{$therapyAgentsAr}</div>
             </td>
           </tr>
@@ -667,7 +685,7 @@ body { font-family: 'DejaVu Sans', Arial, sans-serif; margin: 0; padding: 0; col
               <div class="content">{$therapyRation}</div>
             </td>
             <td class="therapy-col-ar">
-              <div class="label-ar">المبرر السريري</div>
+              <div class="label-ar">{$arLblRational}</div>
               <div class="content-ar">{$therapyRationAr}</div>
             </td>
           </tr>
@@ -683,7 +701,7 @@ body { font-family: 'DejaVu Sans', Arial, sans-serif; margin: 0; padding: 0; col
               <div class="content">{$therapyPrognos}</div>
             </td>
             <td class="therapy-col-ar">
-              <div class="label-ar">التنبؤ بسير المرض / الإنذار</div>
+              <div class="label-ar">{$arLblPrognos}</div>
               <div class="content-ar">{$therapyPrognosAr}</div>
             </td>
           </tr>
@@ -699,7 +717,7 @@ body { font-family: 'DejaVu Sans', Arial, sans-serif; margin: 0; padding: 0; col
               <div class="content">{$therapyAdditional}</div>
             </td>
             <td class="therapy-col-ar">
-              <div class="label-ar">اعتبارات إضافية</div>
+              <div class="label-ar">{$arLblAdditional}</div>
               <div class="content-ar">{$therapyAdditionalAr}</div>
             </td>
           </tr>
@@ -722,14 +740,12 @@ body { font-family: 'DejaVu Sans', Arial, sans-serif; margin: 0; padding: 0; col
   </div>
 </div>
 
-<!-- Attention Heatmap -->
+<!-- Attention Heatmap (single spatial "where the model looked" view — the
+     tissue-segmentation overlay was removed as it duplicated this figure) -->
 <div class="section">
   <div class="section-title">Attention Heatmap</div>
   {$heatmapSection}
 </div>
-
-<!-- Tissue Segmentation Map -->
-{$segmentationSection}
 
 <!-- Top Histopathology Patches Grid -->
 {$patchesSection}
@@ -742,7 +758,7 @@ body { font-family: 'DejaVu Sans', Arial, sans-serif; margin: 0; padding: 0; col
 </div>
 
 <!-- Signature -->
-<div class="sig-line">Dr. {$doctor->name}</div>
+<div class="sig-line">{$docTitle}</div>
 
 <!-- Footer -->
 <div class="report-footer">
