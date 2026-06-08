@@ -615,13 +615,13 @@ body { font-family: 'DejaVu Sans', Arial, sans-serif; margin: 0; padding: 0; col
 
 <!-- Therapy Recommendation -->
 <div class="section">
-  <div class="section-title">Recommended Therapeutic Strategy / الخطة العلاجية الموصى بها</div>
+  <div class="section-title">Recommended Therapeutic Strategy / <span style="text-transform:none;">الخطة العلاجية الموصى بها</span></div>
   <div class="therapy-box">
     <div class="therapy-header">
       <table style="width:100%; border-collapse:collapse; border:none; margin:0; padding:0;">
         <tr>
           <td style="width:50%; text-align:left; color:white; font-size:10px; font-weight:900; border:none;">Treatment Plan</td>
-          <td style="width:50%; text-align:right; color:white; font-size:10px; font-weight:900; border:none; direction:rtl;">خطة العلاج</td>
+          <td style="width:50%; text-align:right; color:white; font-size:10px; font-weight:900; border:none; direction:rtl; text-transform:none;">خطة العلاج</td>
         </tr>
       </table>
     </div>
