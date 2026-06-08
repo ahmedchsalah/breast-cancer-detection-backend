@@ -400,9 +400,9 @@ class ReportController extends Controller
         }
 
         // Receptor status
-        $erStr  = $patient?->er_status  ? 'Positive (+)' : 'Negative (−)';
-        $prStr  = $patient?->pr_status  ? 'Positive (+)' : 'Negative (−)';
-        $herStr = $patient?->her2_binary ? 'Positive (+)' : 'Negative (−)';
+        $erStr  = $patient?->er_status  ? 'Positive (+)' : 'Negative (-)';
+        $prStr  = $patient?->pr_status  ? 'Positive (+)' : 'Negative (-)';
+        $herStr = $patient?->her2_binary ? 'Positive (+)' : 'Negative (-)';
 
         // XAI data
         $topFeatures = $xai?->top_features ?? [];
