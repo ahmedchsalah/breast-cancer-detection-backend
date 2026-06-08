@@ -359,7 +359,7 @@ class ReportController extends Controller
         $confNon   = $pred?->confidence_non_lum_a ?? (1 - $conf);
         $date      = now()->format('d F Y · H:i');
         $reportNum = str_pad($report->id, 6, '0', STR_PAD_LEFT);
-        $primary   = $isLumA ? '#0BB592' : '#F55486';
+        $primary   = $isLumA ? '#0BB592' : '#DC2626';
         $label     = $isLumA ? 'Luminal A' : 'Non-Luminal A';
         $stageRoman = ['I', 'II', 'III', 'IV'][($patient?->stage_num ?? 1) - 1] ?? '—';
 
